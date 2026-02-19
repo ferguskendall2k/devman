@@ -44,7 +44,7 @@ struct GitHubCreds {
     token: String,
 }
 
-/// Claude Code OAuth credential format
+/// Claude Code credential file format (~/.claude/.credentials.json)
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeCodeCredentials {
@@ -59,11 +59,29 @@ struct ClaudeAiOAuth {
     expires_at: Option<u64>,
 }
 
+/// OpenClaw auth-profiles.json format
+#[derive(Debug, Deserialize)]
+struct OpenClawAuthProfiles {
+    profiles: Option<std::collections::HashMap<String, OpenClawProfile>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenClawProfile {
+    #[serde(rename = "type")]
+    profile_type: Option<String>,
+    provider: Option<String>,
+    token: Option<String>,      // type: "token"
+    access: Option<String>,     // type: "oauth"
+    refresh: Option<String>,    // type: "oauth"
+    expires: Option<u64>,
+}
+
 impl AuthStore {
     /// Load credentials with resolution order:
     /// 1. Environment variables
     /// 2. Claude Code CLI OAuth (~/.claude/.credentials.json)
-    /// 3. credentials.toml
+    /// 3. OpenClaw auth-profiles (if installed)
+    /// 4. DevMan credentials.toml
     pub fn load() -> Result<Self> {
         let creds_path = Self::credentials_path();
         let mut credentials = if creds_path.exists() {
@@ -85,7 +103,8 @@ impl AuthStore {
         Ok(Self { credentials })
     }
 
-    /// Resolve the Anthropic API key (env → Claude Code OAuth → credentials.toml)
+    /// Resolve the Anthropic API key/token
+    /// Priority: env → Claude Code OAuth → OpenClaw auth-profiles → credentials.toml
     pub fn anthropic_api_key(&self) -> Result<String> {
         // 1. Already loaded from env or credentials.toml
         if let Some(ref creds) = self.credentials.anthropic {
@@ -94,15 +113,23 @@ impl AuthStore {
             }
         }
 
-        // 2. Try Claude Code OAuth
+        // 2. Try Claude Code OAuth (~/.claude/.credentials.json)
         if let Some(token) = Self::read_claude_code_oauth()? {
             return Ok(token);
         }
 
+        // 3. Try OpenClaw auth-profiles
+        if let Some(token) = Self::read_openclaw_auth()? {
+            return Ok(token);
+        }
+
         anyhow::bail!(
-            "No Anthropic API key found. Set ANTHROPIC_API_KEY, \
-             login to Claude Code (`claude login`), \
-             or run `devman init`."
+            "No Anthropic API key found.\n\
+             Options:\n\
+             1. Login to Claude Code: `claude login`\n\
+             2. Set ANTHROPIC_API_KEY environment variable\n\
+             3. Run `devman init`\n\
+             4. If OpenClaw is installed, its OAuth token will be used automatically"
         )
     }
 
@@ -131,7 +158,83 @@ impl AuthStore {
                     return Ok(None);
                 }
             }
+            tracing::info!("Using Anthropic OAuth token from Claude Code CLI");
             return Ok(Some(oauth.access_token));
+        }
+
+        Ok(None)
+    }
+
+    /// Read OAuth token from OpenClaw's auth-profiles.json
+    fn read_openclaw_auth() -> Result<Option<String>> {
+        // Try common OpenClaw auth-profiles locations
+        let candidates = [
+            dirs::home_dir()
+                .unwrap_or_default()
+                .join(".openclaw/agents/main/agent/auth-profiles.json"),
+        ];
+
+        for path in &candidates {
+            if !path.exists() {
+                continue;
+            }
+
+            let content = match std::fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let profiles: OpenClawAuthProfiles = match serde_json::from_str(&content) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+
+            if let Some(profiles_map) = profiles.profiles {
+                // Look for anthropic:default profile
+                if let Some(profile) = profiles_map.get("anthropic:default") {
+                    // Check provider
+                    if profile.provider.as_deref() != Some("anthropic") {
+                        continue;
+                    }
+
+                    // type: "token" → use token field
+                    if profile.profile_type.as_deref() == Some("token") {
+                        if let Some(ref token) = profile.token {
+                            // Check expiry if present
+                            if let Some(expires) = profile.expires {
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64;
+                                if now_ms > expires {
+                                    tracing::warn!("OpenClaw OAuth token expired");
+                                    continue;
+                                }
+                            }
+                            tracing::info!("Using Anthropic OAuth token from OpenClaw");
+                            return Ok(Some(token.clone()));
+                        }
+                    }
+
+                    // type: "oauth" → use access field
+                    if profile.profile_type.as_deref() == Some("oauth") {
+                        if let Some(ref access) = profile.access {
+                            if let Some(expires) = profile.expires {
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64;
+                                if now_ms > expires {
+                                    tracing::warn!("OpenClaw OAuth token expired");
+                                    continue;
+                                }
+                            }
+                            tracing::info!("Using Anthropic OAuth token from OpenClaw");
+                            return Ok(Some(access.clone()));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(None)
