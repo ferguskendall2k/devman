@@ -178,6 +178,7 @@ pub async fn run(config: &Config) -> Result<()> {
                     let _ = bot.send_typing(chat_id).await;
 
                     // Get or create per-chat context
+                    // Note: safe because updates are processed sequentially within select! arm
                     let chat = chat_states.entry(chat_id).or_insert_with(|| {
                         ChatState {
                             context: ContextManager::with_persistence(

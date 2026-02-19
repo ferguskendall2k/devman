@@ -233,8 +233,14 @@ fn cron_next(expr: &str, after: DateTime<Utc>) -> Option<DateTime<Utc>> {
 
     let limit = after + Duration::days(366);
     let mut candidate = start;
+    let mut iterations = 0u32;
+    const MAX_ITERATIONS: u32 = 10_000; // prevent runaway loops
 
     while candidate < limit {
+        iterations += 1;
+        if iterations > MAX_ITERATIONS {
+            return None; // expression likely unmatchable
+        }
         let m = candidate.month();
         let d = candidate.day();
         let h = candidate.hour();

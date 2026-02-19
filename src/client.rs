@@ -309,6 +309,10 @@ impl AnthropicClient {
 
     /// Parse next complete SSE event from buffer, consuming it
     fn parse_next_sse_event(buffer: &mut String) -> Option<StreamEvent> {
+        // Normalize \r\n to \n for cross-platform SSE
+        if buffer.contains("\r\n") {
+            *buffer = buffer.replace("\r\n", "\n");
+        }
         // SSE events are separated by double newlines
         let event_end = buffer.find("\n\n")?;
         let event_text = buffer[..event_end].to_string();
@@ -321,7 +325,10 @@ impl AnthropicClient {
             if let Some(rest) = line.strip_prefix("event: ") {
                 event_type = rest.to_string();
             } else if let Some(rest) = line.strip_prefix("data: ") {
-                data = rest.to_string();
+                if !data.is_empty() {
+                    data.push('\n');
+                }
+                data.push_str(rest);
             }
         }
 

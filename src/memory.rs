@@ -55,16 +55,38 @@ impl MemoryManager {
             .collect()
     }
 
+    /// Validate that a path stays within the memory root (prevent traversal)
+    fn safe_path(&self, path: &str) -> Result<PathBuf> {
+        let full_path = self.root.join(path);
+        let canonical = full_path
+            .canonicalize()
+            .or_else(|_| {
+                // File may not exist yet — canonicalize parent
+                if let Some(parent) = full_path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                    let canon_parent = parent.canonicalize()?;
+                    Ok(canon_parent.join(full_path.file_name().unwrap_or_default()))
+                } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid path"))
+                }
+            })?;
+        let canon_root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+        if !canonical.starts_with(&canon_root) {
+            anyhow::bail!("Path traversal blocked: {} escapes memory root", path);
+        }
+        Ok(canonical)
+    }
+
     /// Read a memory file (path relative to memory root)
     pub fn read_file(&self, path: &str) -> Result<String> {
-        let full_path = self.root.join(path);
+        let full_path = self.safe_path(path)?;
         std::fs::read_to_string(&full_path)
             .with_context(|| format!("reading memory file: {}", full_path.display()))
     }
 
     /// Write/create a memory file (path relative to memory root)
     pub fn write_file(&self, path: &str, content: &str) -> Result<()> {
-        let full_path = self.root.join(path);
+        let full_path = self.safe_path(path)?;
         if let Some(parent) = full_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -74,7 +96,7 @@ impl MemoryManager {
 
     /// Append to a memory file
     pub fn append_file(&self, path: &str, content: &str) -> Result<()> {
-        let full_path = self.root.join(path);
+        let full_path = self.safe_path(path)?;
         if let Some(parent) = full_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
