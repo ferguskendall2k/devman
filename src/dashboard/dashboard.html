@@ -329,6 +329,8 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     // Lazy-load tab data
+    if (tab.dataset.tab === 'overview' && !chatConnected) connectChat(currentChatBot);
+    if (tab.dataset.tab !== 'overview') disconnectChat();
     if (tab.dataset.tab === 'tasks') loadTasks();
     if (tab.dataset.tab === 'org') loadOrg();
     if (tab.dataset.tab === 'settings') { loadConfig(); loadTmp(); }
@@ -395,12 +397,15 @@ async function loadBots() {
 // ─── Chat ───────────────────────────────────────────────────────
 let chatWs = null;
 let currentChatBot = 'manager';
+let chatConnected = false;
 
 function connectChat(bot) {
   bot = bot || currentChatBot;
   currentChatBot = bot;
-  if (chatWs) { chatWs.onclose = null; chatWs.close(); }
+  if (chatWs) { chatWs.onclose = null; chatWs.close(); chatWs = null; }
+  chatConnected = false;
   chatWs = new WebSocket(WS_BASE + '/ws/chat?bot=' + encodeURIComponent(bot));
+  chatWs.onopen = () => { chatConnected = true; };
   chatWs.onmessage = (e) => {
     const msgs = document.getElementById('chat-messages');
     const div = document.createElement('div');
@@ -410,7 +415,18 @@ function connectChat(bot) {
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;
   };
-  chatWs.onclose = () => setTimeout(() => connectChat(currentChatBot), 3000);
+  chatWs.onclose = () => {
+    chatWs = null;
+    chatConnected = false;
+    // Only auto-reconnect if overview tab is active
+    if (document.querySelector('.tab.active')?.dataset.tab === 'overview') {
+      setTimeout(() => connectChat(currentChatBot), 10000);
+    }
+  };
+}
+
+function disconnectChat() {
+  if (chatWs) { chatWs.onclose = null; chatWs.close(); chatWs = null; chatConnected = false; }
 }
 
 document.getElementById('chat-bot-select').addEventListener('change', (e) => {
