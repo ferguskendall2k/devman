@@ -8,12 +8,14 @@ mod cli;
 mod config;
 mod context;
 mod cost;
+mod cron;
 mod manager;
 mod memory;
 mod orchestrator;
 mod telegram;
 mod tools;
 mod types;
+mod voice;
 
 #[derive(Parser)]
 #[command(name = "devman", version, about = "Lightweight agentic framework for Claude 🔧")]

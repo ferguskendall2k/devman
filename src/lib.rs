@@ -3,12 +3,13 @@ pub mod auth;
 pub mod client;
 pub mod cli;
 pub mod config;
+pub mod cron;
 pub mod context;
-// WIP modules — uncomment when ready
-// pub mod cost;
-// pub mod manager;
-// pub mod orchestrator;
+pub mod cost;
+pub mod manager;
 pub mod memory;
+pub mod orchestrator;
 pub mod telegram;
 pub mod tools;
 pub mod types;
+pub mod voice;

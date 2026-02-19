@@ -1,4 +1,5 @@
 pub mod edit;
+pub mod git;
 pub mod memory;
 pub mod read;
 pub mod shell;
@@ -20,6 +21,12 @@ pub async fn execute_tool(
 ) -> Result<String> {
     match name {
         "shell" => shell::execute(input).await,
+        "git_status" => git::git_status_execute(input).await,
+        "git_diff" => git::git_diff_execute(input).await,
+        "git_commit" => git::git_commit_execute(input).await,
+        "git_push" => git::git_push_execute(input).await,
+        "git_log" => git::git_log_execute(input).await,
+        "git_branch" => git::git_branch_execute(input).await,
         "read_file" => read::execute(input).await,
         "write_file" => write::execute(input).await,
         "edit_file" => edit::execute(input).await,
@@ -55,6 +62,13 @@ pub fn builtin_tool_definitions(web_enabled: bool) -> Vec<ToolDefinition> {
         tools.push(web_search::definition());
         tools.push(web_fetch::definition());
     }
+    // Git tools always available
+    tools.push(git::git_status_definition());
+    tools.push(git::git_diff_definition());
+    tools.push(git::git_commit_definition());
+    tools.push(git::git_push_definition());
+    tools.push(git::git_log_definition());
+    tools.push(git::git_branch_definition());
     // Memory tools always available
     tools.push(memory::memory_search_definition());
     tools.push(memory::memory_read_definition());
