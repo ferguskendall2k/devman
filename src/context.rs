@@ -85,22 +85,55 @@ impl ContextManager {
         (chars / 4) as u64
     }
 
-    /// Compact conversation when approaching context limit
-    /// Keeps first message (may contain important context) and recent messages
+    /// Compact conversation when approaching context limit.
+    /// Extracts text from recent messages as a summary, then starts fresh.
+    /// This avoids orphaned tool_use/tool_result blocks that break the API.
     pub fn compact(&mut self, keep_recent: usize) {
         if self.messages.len() <= keep_recent + 1 {
             return;
         }
 
+        // Extract text content from recent messages for context
+        let recent_start = self.messages.len().saturating_sub(keep_recent);
+        let mut recent_text = String::new();
+        for msg in &self.messages[recent_start..] {
+            let role = match msg.role {
+                Role::User => "User",
+                Role::Assistant => "Assistant",
+            };
+            for block in &msg.content {
+                match block {
+                    ContentBlock::Text { text } => {
+                        if !text.is_empty() {
+                            recent_text.push_str(&format!("{role}: {text}\n"));
+                        }
+                    }
+                    ContentBlock::ToolUse { name, .. } => {
+                        recent_text.push_str(&format!("{role}: [used tool: {name}]\n"));
+                    }
+                    ContentBlock::ToolResult { content, .. } => {
+                        let preview = if content.len() > 200 {
+                            format!("{}...", &content[..200])
+                        } else {
+                            content.clone()
+                        };
+                        recent_text.push_str(&format!("{role}: [tool result: {preview}]\n"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let summary = format!(
-            "[Previous conversation compacted — {} messages summarized. \
-             Total tokens used: {} input, {} output]",
-            self.messages.len() - keep_recent,
+            "[Conversation compacted — {} messages removed. {} input tokens, {} output tokens used so far.]\n\
+             Recent context:\n{}",
+            self.messages.len(),
             self.total_input_tokens,
             self.total_output_tokens,
+            recent_text.trim(),
         );
 
-        let recent: Vec<Message> = self.messages.split_off(self.messages.len() - keep_recent);
+        // Start completely fresh — no orphaned tool blocks
         self.messages.clear();
         self.messages.push(Message {
             role: Role::User,
@@ -109,10 +142,9 @@ impl ContextManager {
         self.messages.push(Message {
             role: Role::Assistant,
             content: vec![ContentBlock::Text {
-                text: "Understood, I have the context from our previous conversation.".into(),
+                text: "Understood, I have the context from our conversation so far. How can I help?".into(),
             }],
         });
-        self.messages.extend(recent);
     }
 
     /// Persist to disk
