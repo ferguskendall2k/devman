@@ -1,5 +1,6 @@
 pub mod edit;
 pub mod git;
+pub mod github;
 pub mod improve;
 pub mod memory;
 pub mod patch;
@@ -21,6 +22,7 @@ pub async fn execute_tool(
     input: &serde_json::Value,
     brave_api_key: Option<&str>,
     memory_manager: Option<&MemoryManager>,
+    github_token: Option<&str>,
 ) -> Result<String> {
     match name {
         "shell" => shell::execute(input).await,
@@ -37,6 +39,11 @@ pub async fn execute_tool(
         "web_fetch" => web_fetch::execute(input).await,
         "apply_patch" => patch::execute(input).await,
         "deep_research" => research::execute(input, brave_api_key).await,
+        "github_pr_create" => github::github_pr_create_execute(input, github_token).await,
+        "github_pr_list" => github::github_pr_list_execute(input, github_token).await,
+        "github_issues_list" => github::github_issues_list_execute(input, github_token).await,
+        "github_issue_create" => github::github_issue_create_execute(input, github_token).await,
+        "github_actions_status" => github::github_actions_status_execute(input, github_token).await,
         "memory_search" | "memory_read" | "memory_write" | "memory_load_task"
         | "memory_create_task" | "memory_update_index" => {
             let mm = memory_manager
@@ -56,7 +63,7 @@ pub async fn execute_tool(
 }
 
 /// Get all built-in tool definitions
-pub fn builtin_tool_definitions(web_enabled: bool) -> Vec<ToolDefinition> {
+pub fn builtin_tool_definitions(web_enabled: bool, github_enabled: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         shell::definition(),
         read::definition(),
@@ -67,6 +74,13 @@ pub fn builtin_tool_definitions(web_enabled: bool) -> Vec<ToolDefinition> {
         tools.push(web_search::definition());
         tools.push(web_fetch::definition());
         tools.push(research::definition());
+    }
+    if github_enabled {
+        tools.push(github::github_pr_create_definition());
+        tools.push(github::github_pr_list_definition());
+        tools.push(github::github_issues_list_definition());
+        tools.push(github::github_issue_create_definition());
+        tools.push(github::github_actions_status_definition());
     }
     // Patch tool always available
     tools.push(patch::definition());

@@ -70,7 +70,7 @@ pub struct Manager {
 }
 
 impl Manager {
-    pub fn new(config: Config, api_key: String, brave_api_key: Option<String>) -> Self {
+    pub fn new(config: Config, api_key: String, brave_api_key: Option<String>, github_token: Option<String>) -> Self {
         let client = AnthropicClient::new(api_key.clone());
 
         let state_dir = dirs::data_dir()
@@ -80,7 +80,7 @@ impl Manager {
         let context = ContextManager::with_persistence(state_dir.join("manager-conversation.json"));
 
         // Combine built-in tools + manager-only tools
-        let mut tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled);
+        let mut tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled, config.github.is_some());
         tool_defs.extend(manager_tool_definitions());
 
         let system_prompt = MANAGER_SYSTEM_PROMPT.to_string();
@@ -95,9 +95,10 @@ impl Manager {
             config.agents.max_tokens,
             Thinking::Off,
             brave_api_key.clone(),
+            github_token.clone(),
         );
 
-        let orchestrator = Orchestrator::new(config.clone(), api_key, brave_api_key);
+        let orchestrator = Orchestrator::new(config.clone(), api_key, brave_api_key, github_token);
 
         Self {
             config,

@@ -17,6 +17,7 @@ pub struct AgentLoop {
     max_tokens: u32,
     thinking: Thinking,
     brave_api_key: Option<String>,
+    github_token: Option<String>,
 }
 
 impl AgentLoop {
@@ -30,6 +31,7 @@ impl AgentLoop {
         max_tokens: u32,
         thinking: Thinking,
         brave_api_key: Option<String>,
+        github_token: Option<String>,
     ) -> Self {
         Self {
             client,
@@ -41,6 +43,7 @@ impl AgentLoop {
             max_tokens,
             thinking,
             brave_api_key,
+            github_token,
         }
     }
 
@@ -140,7 +143,7 @@ impl AgentLoop {
                 eprintln!("\n{} {}", "🔧".dimmed(), name.cyan());
 
                 let result =
-                    tools::execute_tool(&name, &input, self.brave_api_key.as_deref(), None).await;
+                    tools::execute_tool(&name, &input, self.brave_api_key.as_deref(), None, self.github_token.as_deref()).await;
 
                 let (content, is_error) = match result {
                     Ok(output) => (output, false),

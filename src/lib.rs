@@ -7,6 +7,7 @@ pub mod context;
 pub mod cost;
 pub mod cron;
 pub mod dashboard;
+pub mod logging;
 pub mod manager;
 pub mod memory;
 pub mod orchestrator;

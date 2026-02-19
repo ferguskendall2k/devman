@@ -16,8 +16,9 @@ pub async fn run(config: &Config, message: &str) -> Result<()> {
     let client = AnthropicClient::new(api_key);
 
     let context = ContextManager::new();
-    let tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled);
+    let tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled, config.github.is_some());
     let brave_key = auth.brave_api_key();
+    let github_token = auth.github_token();
 
     let system_prompt = r#"You are DevMan, a helpful development assistant. Complete the given task using your tools. Be thorough but concise."#.to_string();
 
@@ -31,6 +32,7 @@ pub async fn run(config: &Config, message: &str) -> Result<()> {
         config.agents.max_tokens,
         Thinking::Off,
         brave_key,
+        github_token,
     );
 
     let result = agent.run_turn(message).await?;

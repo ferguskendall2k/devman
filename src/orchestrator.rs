@@ -61,6 +61,7 @@ pub struct Orchestrator {
     config: Config,
     api_key: String,
     brave_api_key: Option<String>,
+    github_token: Option<String>,
     pub cost_tracker: CostTracker,
     pub agents: HashMap<String, SubAgentRecord>,
     state_dir: PathBuf,
@@ -69,13 +70,14 @@ pub struct Orchestrator {
 }
 
 impl Orchestrator {
-    pub fn new(config: Config, api_key: String, brave_api_key: Option<String>) -> Self {
+    pub fn new(config: Config, api_key: String, brave_api_key: Option<String>, github_token: Option<String>) -> Self {
         let state_dir = PathBuf::from(".devman/agents");
         let (result_tx, result_rx) = mpsc::channel(32);
         Self {
             config,
             api_key,
             brave_api_key,
+            github_token,
             cost_tracker: CostTracker::new(),
             agents: HashMap::new(),
             state_dir,
@@ -117,8 +119,9 @@ impl Orchestrator {
         // Spawn the agent loop in a background task
         let client = AnthropicClient::new(self.api_key.clone());
         let context = ContextManager::with_persistence(run_dir.join("conversation.json"));
-        let tool_defs = tools::builtin_tool_definitions(self.config.tools.web_enabled);
+        let tool_defs = tools::builtin_tool_definitions(self.config.tools.web_enabled, self.config.github.is_some());
         let brave_key = self.brave_api_key.clone();
+        let gh_token = self.github_token.clone();
         let max_turns = self.config.agents.max_turns;
         let max_tokens = self.config.agents.max_tokens;
         let model_owned = model.to_string();
@@ -138,6 +141,7 @@ impl Orchestrator {
                 max_tokens,
                 thinking,
                 brave_key,
+                gh_token,
             );
 
             match agent.run_turn(&message_owned).await {

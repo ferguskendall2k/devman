@@ -18,6 +18,7 @@ mod telegram;
 mod tools;
 mod types;
 mod voice;
+mod logging;
 
 #[derive(Parser)]
 #[command(name = "devman", version, about = "Lightweight agentic framework for Claude 🔧")]
@@ -46,16 +47,14 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Init tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .init();
-
     let cli = Cli::parse();
     let config = config::Config::load().unwrap_or_default();
+
+    // Init logging
+    let _ = logging::init(
+        &config.logging.level,
+        config.logging.file.as_ref(),
+    );
 
     match cli.command {
         Some(Commands::Chat) | None => cli::chat::run(&config).await,

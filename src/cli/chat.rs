@@ -23,8 +23,9 @@ pub async fn run(config: &Config) -> Result<()> {
     std::fs::create_dir_all(&state_dir)?;
     let context = ContextManager::with_persistence(state_dir.join("conversation.json"));
 
-    let tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled);
+    let tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled, config.github.is_some());
     let brave_key = auth.brave_api_key();
+    let github_token = auth.github_token();
 
     let system_prompt = load_system_prompt();
 
@@ -38,6 +39,7 @@ pub async fn run(config: &Config) -> Result<()> {
         config.agents.max_tokens,
         Thinking::Off,
         brave_key,
+        github_token,
     );
 
     eprintln!("{}", "DevMan 🔧 — type /quit to exit, /clear to reset".bold());
