@@ -336,13 +336,29 @@ pub async fn run(config: &Config) -> Result<()> {
         eprintln!("{} Scoped bot '{}' → tasks: {:?}", "🤖".dimmed(), sc.name.cyan(), sc.tasks);
     }
 
+    // Disk space check
+    if let Ok(output) = std::process::Command::new("df")
+        .args(["--output=avail", "-B1", "/"])
+        .output()
+    {
+        let out = String::from_utf8_lossy(&output.stdout);
+        if let Some(bytes_str) = out.lines().nth(1) {
+            if let Ok(avail) = bytes_str.trim().parse::<u64>() {
+                let avail_mb = avail / (1024 * 1024);
+                if avail_mb < 500 {
+                    eprintln!("{} Low disk space: {}MB free", "⚠️".yellow(), avail_mb);
+                }
+            }
+        }
+    }
+
     eprintln!("{} {} {}", "🤖".bold(), "DevMan serving".green().bold(),
         format!("(manager + {} scoped bots)", scoped_bots.len()).dimmed());
     eprintln!("{}", "Press Ctrl+C to stop".dimmed());
 
     let mut cron_tick = tokio::time::interval(std::time::Duration::from_secs(30));
-    // Poll interval for Telegram — short enough to feel responsive, long enough to avoid rate limits
     let mut poll_tick = tokio::time::interval(std::time::Duration::from_millis(500));
+    let mut consecutive_poll_errors: u32 = 0;
     let model = config.models.standard.clone();
     let system_prompt = "You are DevMan, a helpful coding assistant. Be concise and use tools proactively.".to_string();
 
@@ -403,8 +419,14 @@ pub async fn run(config: &Config) -> Result<()> {
 
             // Unified Telegram polling — round-robin all bots
             _ = poll_tick.tick() => {
+                // Exponential backoff on consecutive errors (network outage)
+                if consecutive_poll_errors > 0 {
+                    let backoff = std::cmp::min(2u64.pow(consecutive_poll_errors), 60);
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                }
+
+                let mut had_error = false;
                 for bot in &mut all_bots {
-                    // Non-blocking poll (timeout=0)
                     match bot.bot.get_updates(bot.offset, 0).await {
                         Ok(updates) => {
                             for update in updates {
@@ -416,8 +438,19 @@ pub async fn run(config: &Config) -> Result<()> {
                         }
                         Err(e) => {
                             tracing::error!("[{}] Poll error: {e}", bot.name);
+                            had_error = true;
                         }
                     }
+                }
+
+                if had_error {
+                    consecutive_poll_errors += 1;
+                    if consecutive_poll_errors == 1 {
+                        tracing::warn!("Network issue detected — backing off");
+                    }
+                } else if consecutive_poll_errors > 0 {
+                    tracing::info!("Network recovered after {} retries", consecutive_poll_errors);
+                    consecutive_poll_errors = 0;
                 }
             }
         }

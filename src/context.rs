@@ -147,14 +147,16 @@ impl ContextManager {
         });
     }
 
-    /// Persist to disk
+    /// Persist to disk (atomic write: temp file + rename to prevent corruption)
     pub fn save(&self) -> anyhow::Result<()> {
         if let Some(ref path) = self.persist_path {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             let json = serde_json::to_string(self)?;
-            std::fs::write(path, json)?;
+            let tmp = path.with_extension("json.tmp");
+            std::fs::write(&tmp, &json)?;
+            std::fs::rename(&tmp, path)?;
         }
         Ok(())
     }

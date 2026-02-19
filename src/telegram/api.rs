@@ -3,7 +3,7 @@ use reqwest::Client;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::types::{ApiResponse, TgFile, TgMessage, Update};
+use super::types::{ApiResponse, RateLimitError, TgFile, TgMessage, Update};
 
 pub struct TelegramBot {
     client: Client,
@@ -51,55 +51,55 @@ impl TelegramBot {
     }
 
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<TgMessage> {
-        // Try with Markdown first; if Telegram rejects it (unbalanced formatting),
-        // retry without parse_mode so the message still gets delivered.
-        let resp: ApiResponse<TgMessage> = self
-            .client
-            .post(format!("{}sendMessage", self.base_url))
-            .json(&serde_json::json!({
+        // Try with Markdown first, then plain text, with rate limit retry
+        for attempt in 0..3 {
+            let parse_mode = if attempt == 0 { Some("Markdown") } else { None };
+
+            let mut body = serde_json::json!({
                 "chat_id": chat_id,
                 "text": text,
-                "parse_mode": "Markdown",
-            }))
-            .send()
-            .await
-            .context("sending Telegram message")?
-            .json()
-            .await
-            .context("parsing sendMessage response")?;
+            });
+            if let Some(pm) = parse_mode {
+                body["parse_mode"] = serde_json::Value::String(pm.into());
+            }
 
-        if resp.ok {
-            return resp.result.context("no message in response");
+            let resp: ApiResponse<TgMessage> = self
+                .client
+                .post(format!("{}sendMessage", self.base_url))
+                .json(&body)
+                .send()
+                .await
+                .context("sending Telegram message")?
+                .json()
+                .await
+                .context("parsing sendMessage response")?;
+
+            if resp.ok {
+                return resp.result.context("no message in response");
+            }
+
+            let desc = resp.description.as_deref().unwrap_or("");
+
+            // Rate limited — wait and retry
+            if desc.contains("Too Many Requests") || desc.contains("retry after") {
+                let wait = resp.parameters
+                    .and_then(|p| p.retry_after)
+                    .unwrap_or(5);
+                tracing::warn!("Telegram rate limited — waiting {wait}s");
+                tokio::time::sleep(Duration::from_secs(wait)).await;
+                continue;
+            }
+
+            // Markdown parse error — retry without parse_mode
+            if parse_mode.is_some() && (desc.contains("parse") || desc.contains("format") || desc.contains("entities")) {
+                tracing::debug!("Markdown send failed ({desc}), retrying as plain text");
+                continue;
+            }
+
+            anyhow::bail!("sendMessage failed: {desc}");
         }
 
-        // Markdown failed — retry without parse_mode
-        tracing::debug!(
-            "Markdown send failed ({}), retrying as plain text",
-            resp.description.as_deref().unwrap_or("unknown")
-        );
-
-        let resp2: ApiResponse<TgMessage> = self
-            .client
-            .post(format!("{}sendMessage", self.base_url))
-            .json(&serde_json::json!({
-                "chat_id": chat_id,
-                "text": text,
-            }))
-            .send()
-            .await
-            .context("sending Telegram message (plain fallback)")?
-            .json()
-            .await
-            .context("parsing sendMessage response (plain fallback)")?;
-
-        if !resp2.ok {
-            anyhow::bail!(
-                "sendMessage failed: {}",
-                resp2.description.unwrap_or_default()
-            );
-        }
-
-        resp2.result.context("no message in response")
+        anyhow::bail!("sendMessage failed after 3 attempts")
     }
 
     pub async fn send_typing(&self, chat_id: i64) -> Result<()> {

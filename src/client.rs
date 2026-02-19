@@ -13,6 +13,8 @@ const API_VERSION: &str = "2023-06-01";
 pub struct AnthropicClient {
     client: Client,
     api_key: String,
+    /// Track if we've already retried with a fresh token this session
+    retried_auth: bool,
 }
 
 /// Request body for the Messages API
@@ -108,12 +110,24 @@ impl AnthropicClient {
             .timeout(Duration::from_secs(300))
             .build()
             .expect("failed to build HTTP client");
-        Self { client, api_key }
+        Self { client, api_key, retried_auth: false }
+    }
+
+    /// Try to refresh the API key from credentials
+    pub fn refresh_api_key(&mut self) -> bool {
+        match crate::auth::AuthStore::load().and_then(|a| a.anthropic_api_key()) {
+            Ok(new_key) if new_key != self.api_key => {
+                tracing::info!("Refreshed API key from credentials");
+                self.api_key = new_key;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Send a streaming request and collect the full response
     pub async fn send_message(
-        &self,
+        &mut self,
         model: &str,
         system: &str,
         messages: &[Message],
@@ -181,7 +195,7 @@ impl AnthropicClient {
             req_builder = req_builder.header("x-api-key", &self.api_key);
         }
 
-        let response = req_builder
+        let mut response = req_builder
             .json(&request)
             .send()
             .await
@@ -190,7 +204,50 @@ impl AnthropicClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("API error {status}: {body}");
+
+            // Auto-refresh OAuth token on 401
+            if status == reqwest::StatusCode::UNAUTHORIZED && !self.retried_auth {
+                tracing::warn!("Got 401 — attempting token refresh");
+                self.retried_auth = true;
+                if self.refresh_api_key() {
+                    // Retry: rebuild the request with new key
+                    let is_oauth = self.api_key.starts_with("sk-ant-oat");
+                    let mut retry = self
+                        .client
+                        .post(API_BASE)
+                        .header("content-type", "application/json")
+                        .header("anthropic-version", API_VERSION);
+
+                    if is_oauth {
+                        retry = retry
+                            .header("authorization", format!("Bearer {}", self.api_key))
+                            .header("anthropic-beta", "claude-code-20250219,oauth-2025-04-20")
+                            .header("user-agent", "claude-cli/1.0.0 (external, cli)")
+                            .header("x-app", "cli");
+                    } else {
+                        retry = retry.header("x-api-key", &self.api_key);
+                    }
+
+                    let retry_resp = retry.json(&request).send().await
+                        .context("retry after token refresh")?;
+
+                    if retry_resp.status().is_success() {
+                        response = retry_resp;
+                        self.retried_auth = false;
+                        // Fall through to stream parsing below
+                    } else {
+                        let s = retry_resp.status();
+                        let b = retry_resp.text().await.unwrap_or_default();
+                        anyhow::bail!("API error {s} (after token refresh): {b}");
+                    }
+                } else {
+                    anyhow::bail!("API error 401 Unauthorized (token refresh failed): {body}");
+                }
+            } else {
+                anyhow::bail!("API error {status}: {body}");
+            }
+        } else {
+            self.retried_auth = false;
         }
 
         // Parse SSE stream

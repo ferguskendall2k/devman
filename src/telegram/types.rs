@@ -108,4 +108,15 @@ pub struct ApiResponse<T> {
     pub ok: bool,
     pub result: Option<T>,
     pub description: Option<String>,
+    pub parameters: Option<ResponseParameters>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResponseParameters {
+    pub retry_after: Option<u64>,
+}
+
+/// Extracted rate limit info
+pub struct RateLimitError {
+    pub retry_after: u64,
 }
