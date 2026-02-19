@@ -1,0 +1,25 @@
+[Unit]
+Description=DevMan AI Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fergus
+ExecStart=/home/fergus/DevMan/target/release/devman serve
+Restart=always
+RestartSec=3
+Environment=PATH=/home/fergus/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/fergus
+
+# Memory protection — kill DevMan before it OOM-kills everything else
+MemoryMax=2G
+MemoryHigh=1.5G
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=devman
+
+[Install]
+WantedBy=multi-user.target

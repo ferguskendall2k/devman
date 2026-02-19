@@ -39,6 +39,8 @@ struct BotInstance {
     task_scope: Vec<String>,
     /// "scoped" or "full"
     memory_access: String,
+    max_tokens: u32,
+    max_turns: u32,
 }
 
 impl BotInstance {
@@ -164,7 +166,15 @@ async fn handle_message(
         }
     });
 
-    let context = std::mem::replace(&mut chat.context, ContextManager::new());
+    let mut context = std::mem::replace(&mut chat.context, ContextManager::new());
+
+    // Auto-compact if conversation is getting too long
+    let max_history = instance.max_turns as usize * 2; // ~2 messages per turn
+    if context.messages.len() > max_history {
+        let keep = 10; // keep last 10 messages
+        eprintln!("{} [{}] Compacting context: {} msgs → ~{}", "🗜️".dimmed(), instance.name.yellow(), context.messages.len(), keep + 2);
+        context.compact(keep);
+    }
 
     let mut agent = AgentLoop::new(
         AnthropicClient::new(api_key.to_string()),
@@ -172,8 +182,8 @@ async fn handle_message(
         instance.model.clone(),
         instance.system_prompt.clone(),
         tool_defs.to_vec(),
-        config.agents.max_turns,
-        config.agents.max_tokens,
+        instance.max_turns,
+        instance.max_tokens,
         Thinking::Off,
         brave_api_key.clone(),
         github_token.clone(),
@@ -274,6 +284,8 @@ pub async fn run(config: &Config) -> Result<()> {
         system_prompt: "You are DevMan, a helpful coding assistant. Be concise and use tools proactively.".to_string(),
         task_scope: vec!["*".to_string()],
         memory_access: "full".to_string(),
+        max_tokens: 4096,
+        max_turns: config.agents.max_turns,
     };
 
     // --- Scoped bots ---
@@ -315,6 +327,8 @@ pub async fn run(config: &Config) -> Result<()> {
             system_prompt: sys_prompt,
             task_scope: sc.tasks.clone(),
             memory_access: sc.memory_access.clone(),
+            max_tokens: sc.max_tokens,
+            max_turns: sc.max_turns,
         });
 
         eprintln!("{} Scoped bot '{}' → tasks: {:?}", "🤖".dimmed(), sc.name.cyan(), sc.tasks);

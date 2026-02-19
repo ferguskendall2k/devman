@@ -132,6 +132,20 @@ pub struct ScopedBotConfig {
     /// "scoped" (default) or "full"
     #[serde(default = "default_memory_access")]
     pub memory_access: String,
+    /// Max output tokens for this bot (default: 4096 — good for Telegram)
+    #[serde(default = "default_bot_max_tokens")]
+    pub max_tokens: u32,
+    /// Max conversation turns before auto-compaction (default: 20)
+    #[serde(default = "default_bot_max_turns")]
+    pub max_turns: u32,
+}
+
+fn default_bot_max_tokens() -> u32 {
+    4096
+}
+
+fn default_bot_max_turns() -> u32 {
+    20
 }
 
 fn default_model_tier() -> String {
