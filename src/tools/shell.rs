@@ -35,6 +35,13 @@ pub async fn execute(input: &serde_json::Value) -> Result<String> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("missing 'command' field"))?;
 
+    // Self-kill protection: refuse commands that would kill devman
+    let lower = command.to_lowercase();
+    let dangerous = ["kill", "pkill", "killall", "systemctl stop devman", "systemctl restart devman"];
+    if dangerous.iter().any(|d| lower.contains(d)) && lower.contains("devman") {
+        return Ok("⚠️ Refused: cannot kill/restart own process. Use the RESTART_REQUESTED flag or systemctl from outside.".into());
+    }
+
     let timeout_secs = input["timeout"].as_u64().unwrap_or(120);
 
     let mut cmd = Command::new("bash");
