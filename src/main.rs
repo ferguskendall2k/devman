@@ -9,6 +9,8 @@ mod config;
 mod context;
 mod cost;
 mod cron;
+mod dashboard;
+mod improve;
 mod manager;
 mod memory;
 mod orchestrator;

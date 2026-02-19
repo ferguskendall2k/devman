@@ -1,7 +1,10 @@
 pub mod edit;
 pub mod git;
+pub mod improve;
 pub mod memory;
+pub mod patch;
 pub mod read;
+pub mod research;
 pub mod shell;
 pub mod web_fetch;
 pub mod web_search;
@@ -32,6 +35,8 @@ pub async fn execute_tool(
         "edit_file" => edit::execute(input).await,
         "web_search" => web_search::execute(input, brave_api_key).await,
         "web_fetch" => web_fetch::execute(input).await,
+        "apply_patch" => patch::execute(input).await,
+        "deep_research" => research::execute(input, brave_api_key).await,
         "memory_search" | "memory_read" | "memory_write" | "memory_load_task"
         | "memory_create_task" | "memory_update_index" => {
             let mm = memory_manager
@@ -61,7 +66,10 @@ pub fn builtin_tool_definitions(web_enabled: bool) -> Vec<ToolDefinition> {
     if web_enabled {
         tools.push(web_search::definition());
         tools.push(web_fetch::definition());
+        tools.push(research::definition());
     }
+    // Patch tool always available
+    tools.push(patch::definition());
     // Git tools always available
     tools.push(git::git_status_definition());
     tools.push(git::git_diff_definition());
