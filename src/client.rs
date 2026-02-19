@@ -206,7 +206,13 @@ impl AnthropicClient {
         let mut stream = response.bytes_stream();
         let mut buffer = String::new();
 
-        while let Some(chunk) = stream.next().await {
+        while let Some(chunk) = tokio::time::timeout(
+            Duration::from_secs(60),
+            stream.next(),
+        )
+        .await
+        .context("stream chunk timeout (60s)")?
+        {
             let chunk = chunk.context("reading stream chunk")?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 

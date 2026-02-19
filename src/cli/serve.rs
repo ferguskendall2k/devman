@@ -325,8 +325,15 @@ pub async fn run(config: &Config) -> Result<()> {
     eprintln!("{}", "Press Ctrl+C to stop".dimmed());
 
     let mut cron_tick = tokio::time::interval(std::time::Duration::from_secs(30));
+    // Poll interval for Telegram — short enough to feel responsive, long enough to avoid rate limits
+    let mut poll_tick = tokio::time::interval(std::time::Duration::from_millis(500));
     let model = config.models.standard.clone();
     let system_prompt = "You are DevMan, a helpful coding assistant. Be concise and use tools proactively.".to_string();
+
+    // Collect all bots into a single vec for unified polling
+    let mut all_bots: Vec<BotInstance> = Vec::new();
+    all_bots.push(manager);
+    all_bots.append(&mut scoped_bots);
 
     loop {
         // Check restart flag (set by assign_bot/remove_bot tools)
@@ -335,14 +342,10 @@ pub async fn run(config: &Config) -> Result<()> {
             eprintln!("\n{}", "🔄 Restart requested — re-execing...".yellow());
             cron.save()?;
 
-            // Re-exec ourselves
             let exe = std::env::current_exe().context("finding current executable")?;
             let err = exec_process(&exe, &["serve"]);
-            // exec_process only returns on error
             anyhow::bail!("Failed to re-exec: {err}");
         }
-
-        let manager_poll = manager.bot.get_updates(manager.offset, 1);
 
         tokio::select! {
             _ = signal::ctrl_c() => {
@@ -382,24 +385,10 @@ pub async fn run(config: &Config) -> Result<()> {
                 cron.save()?;
             }
 
-            // Manager bot polling
-            result = manager_poll => {
-                if let Ok(updates) = result {
-                    for update in updates {
-                        manager.offset = update.update_id + 1;
-                        if let Some(msg) = update.message {
-                            handle_message(&mut manager, msg, &api_key, &tool_defs, &brave_api_key, &github_token, &cost_tracker, config).await;
-                        }
-                    }
-                } else if let Err(e) = result {
-                    tracing::error!("[manager] Poll error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                }
-            }
-
-            // Scoped bots — poll all with a small sleep cycle
-            _ = async {
-                for (i, bot) in scoped_bots.iter_mut().enumerate() {
+            // Unified Telegram polling — round-robin all bots
+            _ = poll_tick.tick() => {
+                for bot in &mut all_bots {
+                    // Non-blocking poll (timeout=0)
                     match bot.bot.get_updates(bot.offset, 0).await {
                         Ok(updates) => {
                             for update in updates {
@@ -414,12 +403,7 @@ pub async fn run(config: &Config) -> Result<()> {
                         }
                     }
                 }
-                // Only run this branch if there are scoped bots
-                if scoped_bots.is_empty() {
-                    // Never resolve if no scoped bots — let other branches win
-                    std::future::pending::<()>().await;
-                }
-            } => {}
+            }
         }
     }
 
