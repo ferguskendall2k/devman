@@ -17,7 +17,9 @@ use crate::memory::{MemoryManager, TaskStorage};
 use crate::telegram::api::TelegramBot;
 use crate::telegram::types::TgMessage;
 use crate::tools;
+use crate::tools::bot_management::RESTART_REQUESTED;
 use crate::types::Thinking;
+use std::sync::atomic::Ordering;
 
 /// Per-chat conversation state
 struct ChatState {
@@ -211,6 +213,13 @@ async fn handle_message(
     chat.context = agent.context;
 }
 
+/// Re-exec the current process with new args (Unix exec, replaces process)
+fn exec_process(exe: &std::path::Path, args: &[&str]) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    // This only returns if exec fails
+    std::process::Command::new(exe).args(args).exec()
+}
+
 pub async fn run(config: &Config) -> Result<()> {
     let auth = AuthStore::load().context("loading credentials")?;
     let api_key = auth.anthropic_api_key()?;
@@ -320,6 +329,19 @@ pub async fn run(config: &Config) -> Result<()> {
     let system_prompt = "You are DevMan, a helpful coding assistant. Be concise and use tools proactively.".to_string();
 
     loop {
+        // Check restart flag (set by assign_bot/remove_bot tools)
+        if RESTART_REQUESTED.load(Ordering::SeqCst) {
+            RESTART_REQUESTED.store(false, Ordering::SeqCst);
+            eprintln!("\n{}", "🔄 Restart requested — re-execing...".yellow());
+            cron.save()?;
+
+            // Re-exec ourselves
+            let exe = std::env::current_exe().context("finding current executable")?;
+            let err = exec_process(&exe, &["serve"]);
+            // exec_process only returns on error
+            anyhow::bail!("Failed to re-exec: {err}");
+        }
+
         let manager_poll = manager.bot.get_updates(manager.offset, 1);
 
         tokio::select! {
