@@ -1,3 +1,4 @@
+pub mod bot_management;
 pub mod custom;
 pub mod edit;
 pub mod git;
@@ -59,6 +60,14 @@ pub async fn execute_tool(
                 "memory_load_task" => memory::memory_load_task_execute(input, mm).await,
                 "memory_create_task" => memory::memory_create_task_execute(input, mm).await,
                 "memory_update_index" => memory::memory_update_index_execute(input, mm).await,
+                _ => unreachable!(),
+            }
+        }
+        "assign_bot" | "list_bots" | "remove_bot" => {
+            match name {
+                "assign_bot" => bot_management::assign_bot_execute(input).await,
+                "list_bots" => bot_management::list_bots_execute(input).await,
+                "remove_bot" => bot_management::remove_bot_execute(input).await,
                 _ => unreachable!(),
             }
         }

@@ -15,6 +15,70 @@ fn manager_tool_definitions() -> Vec<ToolDefinition> {
     use serde_json::json;
     vec![
         ToolDefinition {
+            name: "assign_bot".into(),
+            description: "Assign a Telegram bot to a task. Creates a scoped bot entry in config.toml. The bot token must be provided (create via @BotFather first). After adding, DevMan needs a restart to pick up the new bot.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Internal name for this bot (e.g. 'marketing', 'dev', 'research')"
+                    },
+                    "bot_token": {
+                        "type": "string",
+                        "description": "Telegram bot token from @BotFather"
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Task slugs this bot can access (e.g. ['hyperpilot-marketing']). Use ['*'] for all tasks."
+                    },
+                    "allowed_users": {
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "description": "Telegram user IDs allowed to use this bot. Empty = same as manager."
+                    },
+                    "default_model": {
+                        "type": "string",
+                        "enum": ["quick", "standard", "complex"],
+                        "description": "Model tier for this bot. Default: standard."
+                    },
+                    "memory_access": {
+                        "type": "string",
+                        "enum": ["scoped", "full"],
+                        "description": "Memory access: 'scoped' = only listed tasks, 'full' = all tasks. Default: scoped."
+                    },
+                    "system_prompt": {
+                        "type": "string",
+                        "description": "Optional custom system prompt for this bot"
+                    }
+                },
+                "required": ["name", "bot_token", "tasks"]
+            }),
+        },
+        ToolDefinition {
+            name: "list_bots".into(),
+            description: "List all configured scoped bots with their task assignments.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ToolDefinition {
+            name: "remove_bot".into(),
+            description: "Remove a scoped bot by name from config.toml. Requires restart to take effect.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the bot to remove"
+                    }
+                },
+                "required": ["name"]
+            }),
+        },
+        ToolDefinition {
             name: "spawn_agent".into(),
             description: "Spawn a sub-agent to work on a task. Choose the right model tier based on complexity.".into(),
             input_schema: json!({
@@ -176,9 +240,12 @@ RULES:
 6. Track and report costs when asked (/cost).
 
 TOOLS:
-- All standard tools (shell, read/write/edit files, web search/fetch)
+- All standard tools (shell, read/write/edit files, web search/fetch, storage)
 - spawn_agent: Start a sub-agent for a task
 - list_agents: Show active sub-agents  
 - kill_agent: Stop a running sub-agent
+- assign_bot: Assign a Telegram bot to a task (needs bot token from @BotFather)
+- list_bots: List all configured scoped bots
+- remove_bot: Remove a scoped bot by name
 
 Be concise and helpful. Use tools proactively."#;
