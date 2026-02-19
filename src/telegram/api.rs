@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::types::{ApiResponse, TgMessage, Update};
+use super::types::{ApiResponse, TgFile, TgMessage, Update};
 
 pub struct TelegramBot {
     client: Client,
@@ -117,6 +118,73 @@ impl TelegramBot {
             .context("parsing sendChatAction response")?;
 
         Ok(())
+    }
+
+    /// Get file info (needed to get file_path for download)
+    pub async fn get_file(&self, file_id: &str) -> Result<TgFile> {
+        let resp: ApiResponse<TgFile> = self
+            .client
+            .get(format!("{}getFile", self.base_url))
+            .query(&[("file_id", file_id)])
+            .send()
+            .await
+            .context("getting file info")?
+            .json()
+            .await
+            .context("parsing getFile response")?;
+
+        if !resp.ok {
+            anyhow::bail!("getFile failed: {}", resp.description.unwrap_or_default());
+        }
+        resp.result.context("no file in response")
+    }
+
+    /// Download a file to a local path. Returns the local path.
+    pub async fn download_file(&self, file_path: &str, local_dir: &Path, filename: &str) -> Result<PathBuf> {
+        // Extract token from base_url: https://api.telegram.org/bot<TOKEN>/
+        let token = self.base_url
+            .strip_prefix("https://api.telegram.org/bot")
+            .and_then(|s| s.strip_suffix('/'))
+            .unwrap_or("");
+
+        let url = format!("https://api.telegram.org/file/bot{token}/{file_path}");
+
+        let bytes = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("downloading file")?
+            .bytes()
+            .await
+            .context("reading file bytes")?;
+
+        std::fs::create_dir_all(local_dir)?;
+        let local_path = local_dir.join(filename);
+        std::fs::write(&local_path, &bytes)?;
+
+        Ok(local_path)
+    }
+
+    /// Download a Telegram file by file_id, returns (local_path, original_filename)
+    pub async fn download_by_id(&self, file_id: &str, local_dir: &Path, fallback_name: &str) -> Result<PathBuf> {
+        let file_info = self.get_file(file_id).await?;
+        let tg_path = file_info.file_path.context("no file_path in response")?;
+
+        // Use the extension from Telegram's path if available
+        let ext = Path::new(&tg_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        let filename = if fallback_name.contains('.') {
+            fallback_name.to_string()
+        } else if !ext.is_empty() {
+            format!("{fallback_name}.{ext}")
+        } else {
+            fallback_name.to_string()
+        };
+
+        self.download_file(&tg_path, local_dir, &filename).await
     }
 
     pub fn is_allowed(&self, user_id: i64) -> bool {

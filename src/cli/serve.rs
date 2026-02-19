@@ -165,15 +165,102 @@ pub async fn run(config: &Config) -> Result<()> {
                         continue;
                     }
 
-                    let text = match message.text {
-                        Some(ref t) => t.clone(),
-                        None => continue,
-                    };
-
                     let chat_id = message.chat.id;
                     let user_name = user.username.clone().unwrap_or_else(|| user.first_name.clone());
 
-                    eprintln!("{} {} {}", "📩".dimmed(), user_name.cyan(), text.dimmed());
+                    // Download directory for this chat's files
+                    let download_dir = chats_dir.join(format!("{chat_id}_files"));
+
+                    // Build message text from text/caption + any attachments
+                    let mut text_parts: Vec<String> = Vec::new();
+
+                    // Text or caption
+                    if let Some(ref t) = message.text {
+                        text_parts.push(t.clone());
+                    } else if let Some(ref c) = message.caption {
+                        text_parts.push(c.clone());
+                    }
+
+                    // Photo — download largest size
+                    if let Some(ref photos) = message.photo {
+                        if let Some(largest) = photos.last() {
+                            match bot.download_by_id(&largest.file_id, &download_dir, "photo").await {
+                                Ok(path) => {
+                                    text_parts.push(format!("[Image downloaded: {}  ({}×{})]", path.display(), largest.width, largest.height));
+                                }
+                                Err(e) => {
+                                    text_parts.push(format!("[Failed to download image: {e}]"));
+                                }
+                            }
+                        }
+                    }
+
+                    // Document
+                    if let Some(ref doc) = message.document {
+                        let name = doc.file_name.as_deref().unwrap_or("document");
+                        match bot.download_by_id(&doc.file_id, &download_dir, name).await {
+                            Ok(path) => {
+                                let mime = doc.mime_type.as_deref().unwrap_or("unknown");
+                                let size = doc.file_size.unwrap_or(0);
+                                text_parts.push(format!("[File downloaded: {} ({mime}, {size} bytes)]", path.display()));
+                            }
+                            Err(e) => {
+                                text_parts.push(format!("[Failed to download file: {e}]"));
+                            }
+                        }
+                    }
+
+                    // Voice message
+                    if let Some(ref voice) = message.voice {
+                        match bot.download_by_id(&voice.file_id, &download_dir, "voice").await {
+                            Ok(path) => {
+                                text_parts.push(format!("[Voice message downloaded: {} ({}s)]", path.display(), voice.duration));
+                            }
+                            Err(e) => {
+                                text_parts.push(format!("[Failed to download voice: {e}]"));
+                            }
+                        }
+                    }
+
+                    // Audio
+                    if let Some(ref audio) = message.audio {
+                        let name = audio.file_name.as_deref().unwrap_or("audio");
+                        match bot.download_by_id(&audio.file_id, &download_dir, name).await {
+                            Ok(path) => {
+                                text_parts.push(format!("[Audio downloaded: {} ({}s)]", path.display(), audio.duration));
+                            }
+                            Err(e) => {
+                                text_parts.push(format!("[Failed to download audio: {e}]"));
+                            }
+                        }
+                    }
+
+                    // Video
+                    if let Some(ref video) = message.video {
+                        let name = video.file_name.as_deref().unwrap_or("video");
+                        match bot.download_by_id(&video.file_id, &download_dir, name).await {
+                            Ok(path) => {
+                                text_parts.push(format!("[Video downloaded: {} ({}s, {}×{})]", path.display(), video.duration, video.width, video.height));
+                            }
+                            Err(e) => {
+                                text_parts.push(format!("[Failed to download video: {e}]"));
+                            }
+                        }
+                    }
+
+                    // Sticker
+                    if let Some(ref sticker) = message.sticker {
+                        let emoji = sticker.emoji.as_deref().unwrap_or("");
+                        text_parts.push(format!("[Sticker: {emoji}]"));
+                    }
+
+                    // Skip if nothing useful
+                    let text = text_parts.join("\n");
+                    if text.is_empty() {
+                        continue;
+                    }
+
+                    eprintln!("{} {} {}", "📩".dimmed(), user_name.cyan(), text.lines().next().unwrap_or("").dimmed());
 
                     let _ = bot.send_typing(chat_id).await;
 
