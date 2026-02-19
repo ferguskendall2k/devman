@@ -1,19 +1,26 @@
 use axum::{
     extract::{
-        State,
+        Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 
 use super::SharedState;
 use crate::agent::AgentLoop;
 use crate::auth::AuthStore;
 use crate::client::AnthropicClient;
 use crate::context::ContextManager;
+use crate::memory::{MemoryManager, TaskStorage};
 use crate::tools;
 use crate::types::Thinking;
+
+#[derive(Deserialize)]
+pub struct ChatQuery {
+    pub bot: Option<String>,
+}
 
 /// WebSocket handler for live chat
 ///
@@ -23,15 +30,57 @@ use crate::types::Thinking;
 pub async fn chat_handler(
     ws: WebSocketUpgrade,
     State(state): State<SharedState>,
+    Query(query): Query<ChatQuery>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_chat(socket, state))
+    ws.on_upgrade(move |socket| handle_chat(socket, state, query.bot))
 }
 
-async fn handle_chat(mut socket: WebSocket, state: SharedState) {
+/// Resolve bot name to (model, system_prompt, task_scope)
+fn resolve_bot(state: &SharedState, bot_name: Option<&str>) -> (String, String, Vec<String>) {
+    let default = (
+        state.config.models.standard.clone(),
+        "You are DevMan, a helpful coding assistant. Be concise and use tools proactively.".into(),
+        vec!["*".into()],
+    );
+
+    let name = match bot_name {
+        Some(n) if n != "manager" => n,
+        _ => return default,
+    };
+
+    let empty = vec![];
+    let bots = state.config.telegram.as_ref()
+        .map(|t| &t.bots)
+        .unwrap_or(&empty);
+
+    for bot in bots {
+        if bot.name == name {
+            let model = match bot.default_model.as_str() {
+                "quick" => state.config.models.quick.clone(),
+                "complex" => state.config.models.complex.clone(),
+                "manager" => state.config.models.manager.clone(),
+                _ => state.config.models.standard.clone(),
+            };
+
+            let prompt = bot.system_prompt.clone().unwrap_or_else(|| {
+                format!("You are a DevMan bot scoped to tasks: {:?}. Be helpful and concise.", bot.tasks)
+            });
+
+            return (model, prompt, bot.tasks.clone());
+        }
+    }
+
+    default
+}
+
+async fn handle_chat(mut socket: WebSocket, state: SharedState, bot_name: Option<String>) {
+    let (model, system_prompt, task_scope) = resolve_bot(&state, bot_name.as_deref());
+    let display_name = bot_name.as_deref().unwrap_or("manager");
+
     // Send welcome
     let welcome = serde_json::json!({
         "role": "assistant",
-        "text": "Connected to DevMan. Type a message to chat."
+        "text": format!("Connected to {} bot. Type a message to chat.", display_name)
     });
     let _ = socket
         .send(Message::Text(serde_json::to_string(&welcome).unwrap().into()))
@@ -62,8 +111,8 @@ async fn handle_chat(mut socket: WebSocket, state: SharedState) {
     let mut agent = AgentLoop::new(
         AnthropicClient::new(api_key),
         context,
-        state.config.models.standard.clone(),
-        "You are DevMan, a helpful coding assistant. Be concise and use tools proactively.".into(),
+        model.clone(),
+        system_prompt,
         tool_defs,
         state.config.agents.max_turns,
         state.config.agents.max_tokens,
@@ -72,24 +121,28 @@ async fn handle_chat(mut socket: WebSocket, state: SharedState) {
         github_token,
     );
 
+    // Attach scoped storage if this is a scoped bot with a single task
+    if task_scope.len() == 1 && task_scope[0] != "*" {
+        let mm = MemoryManager::new(MemoryManager::default_root());
+        agent = agent.with_storage(mm.task_storage(&task_scope[0]));
+    }
+
     // Chat loop
     while let Some(Ok(msg)) = socket.next().await {
         match msg {
             Message::Text(text) => {
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
                     if let Some(user_text) = data["text"].as_str() {
-                        // Log it
-                        let _ = state.log_tx.send(format!("[chat] User: {}", user_text));
+                        let _ = state.log_tx.send(format!("[chat:{}] User: {}", display_name, user_text));
 
                         match agent.run_turn(user_text).await {
                             Ok(result) => {
                                 let _ = send_json(&mut socket, "assistant", &result.text).await;
 
-                                // Track cost
                                 let mut ct = state.cost_tracker.write().await;
                                 ct.record(
-                                    &state.config.models.standard,
-                                    None,
+                                    &model,
+                                    Some(display_name),
                                     result.usage.input_tokens,
                                     result.usage.output_tokens,
                                     0,
@@ -97,8 +150,8 @@ async fn handle_chat(mut socket: WebSocket, state: SharedState) {
                                 );
 
                                 let _ = state.log_tx.send(format!(
-                                    "[chat] Agent replied ({} in / {} out tokens)",
-                                    result.usage.input_tokens, result.usage.output_tokens
+                                    "[chat:{}] Reply ({} in / {} out tokens)",
+                                    display_name, result.usage.input_tokens, result.usage.output_tokens
                                 ));
                             }
                             Err(e) => {
@@ -137,7 +190,6 @@ async fn handle_logs(mut socket: WebSocket, state: SharedState) {
 
     loop {
         tokio::select! {
-            // Forward broadcast log messages to the client
             result = log_rx.recv() => {
                 match result {
                     Ok(line) => {
@@ -152,7 +204,6 @@ async fn handle_logs(mut socket: WebSocket, state: SharedState) {
                     Err(_) => break,
                 }
             }
-            // Handle client messages (close)
             msg = socket.next() => {
                 match msg {
                     Some(Ok(Message::Close(_))) | None => break,

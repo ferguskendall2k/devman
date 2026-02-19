@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevMan Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #71717a;
+    --accent: #3b82f6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+    --orange: #f97316;
+    --purple: #a855f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+  /* Header */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+  header h1 { font-size: 1.5rem; }
+  header h1 span { opacity: 0.5; }
+  .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+  .status-online { background: rgba(34,197,94,0.15); color: var(--green); }
+  .status-offline { background: rgba(239,68,68,0.15); color: var(--red); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .tab { padding: 12px 20px; cursor: pointer; color: var(--muted); font-size: 0.9rem; font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .card h3 { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .sub { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+
+  /* Sections */
+  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .section h2 { font-size: 1.1rem; margin-bottom: 16px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 12px; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .tag-running { background: rgba(59,130,246,0.15); color: var(--accent); }
+  .tag-complete { background: rgba(34,197,94,0.15); color: var(--green); }
+  .tag-failed { background: rgba(239,68,68,0.15); color: var(--red); }
+  .tag-online { background: rgba(34,197,94,0.15); color: var(--green); }
+
+  /* Chat */
+  #chat { display: flex; flex-direction: column; height: 400px; }
+  #chat-messages { flex: 1; overflow-y: auto; padding: 12px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.6; }
+  #chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+  #chat-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 0.9rem; outline: none; }
+  #chat-input:focus { border-color: var(--accent); }
+  #chat-send { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-weight: 600; }
+  #chat-send:hover { opacity: 0.9; }
+  .msg-user { color: var(--green); }
+  .msg-assistant { color: var(--text); }
+
+  /* Logs */
+  #logs { height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; padding: 12px; background: var(--bg); border-radius: 8px; }
+  .log-line { padding: 2px 0; }
+  .log-info { color: var(--muted); }
+  .log-warn { color: var(--yellow); }
+  .log-error { color: var(--red); }
+
+  /* Settings form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .form-group input, .form-group select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 0.9rem; outline: none; }
+  .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+  .form-group .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .form-group .toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 10px 24px; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+  .btn:hover { opacity: 0.9; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { border-color: var(--accent); }
+  .save-status { font-size: 0.85rem; margin-left: 12px; }
+
+  /* Tasks */
+  .task-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.2s; }
+  .task-card:hover { border-color: var(--accent); }
+  .task-card h3 { font-size: 1rem; margin-bottom: 4px; }
+  .task-card .task-meta { font-size: 0.8rem; color: var(--muted); }
+  .file-viewer { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 12px; }
+  .file-viewer pre { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; }
+  .file-list { list-style: none; }
+  .file-list li { padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+  .file-list li:hover { background: rgba(59,130,246,0.1); }
+  .file-list li.dir { color: var(--accent); }
+  .file-list li .size { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
+  .breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 12px; }
+  .breadcrumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+
+  /* Org Chart */
+  .org-chart { display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
+  .org-node { background: var(--surface); border: 2px solid var(--border); border-radius: 12px; padding: 16px 24px; text-align: center; min-width: 180px; position: relative; }
+  .org-node.manager { border-color: var(--accent); }
+  .org-node.scoped { border-color: var(--green); }
+  .org-node.sub-agent { border-color: var(--orange); }
+  .org-node .node-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+  .org-node .node-role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .org-node .node-model { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+  .org-node .node-tasks { font-size: 0.75rem; color: var(--accent); margin-top: 4px; }
+  .org-node .node-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; vertical-align: middle; }
+  .org-children { display: flex; gap: 24px; margin-top: 32px; position: relative; }
+  .org-connector { position: relative; display: flex; flex-direction: column; align-items: center; }
+  .org-connector::before { content: ''; position: absolute; top: -32px; left: 50%; width: 2px; height: 32px; background: var(--border); }
+  .org-children-wrap { position: relative; }
+  .org-children-wrap::before { content: ''; position: absolute; top: -32px; left: calc(50% - 0px); width: 2px; height: 32px; background: var(--border); }
+  /* Horizontal connector across children */
+  .org-children.multi::before { content: ''; position: absolute; top: -16px; left: 50px; right: 50px; height: 2px; background: var(--border); }
+  .empty-state { text-align: center; padding: 40px; color: var(--muted); }
+
+  /* Docs */
+  .docs-content { line-height: 1.8; font-size: 0.95rem; max-width: 800px; margin: 0 auto; padding: 24px 32px; }
+  .docs-content h1 { font-size: 1.8rem; margin: 36px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: #f0f0f2; letter-spacing: -0.02em; }
+  .docs-content h1:first-child { margin-top: 0; }
+  .docs-content h2 { font-size: 1.35rem; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; color: #e0e0e4; }
+  .docs-content h3 { font-size: 1.1rem; margin: 24px 0 8px; color: #d0d0d6; }
+  .docs-content p { margin: 10px 0; color: #b8b8c0; }
+  .docs-content ul, .docs-content ol { margin: 10px 0 10px 24px; color: #b8b8c0; }
+  .docs-content li { margin: 6px 0; }
+  .docs-content code { background: rgba(255,255,255,0.06); padding: 2px 7px; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85em; color: #d4d4dc; }
+  .docs-content pre { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; overflow-x: auto; margin: 16px 0; line-height: 1.5; }
+  .docs-content pre code { background: none; padding: 0; color: #a8b0bc; }
+  .docs-content table { margin: 16px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .docs-content table td, .docs-content table th { padding: 10px 14px; }
+  .docs-content table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+  .docs-content a { color: #8ab4f8; text-decoration: none; }
+  .docs-content a:hover { text-decoration: underline; color: #aac8ff; }
+  .docs-content blockquote { border-left: 3px solid #555; padding-left: 16px; color: #888; margin: 16px 0; font-style: italic; }
+  .docs-content hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+  .docs-content strong { color: #d8d8e0; }
+  .docs-content img { display: inline-block; vertical-align: middle; margin: 4px 4px 4px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🔧 DevMan <span>Dashboard</span></h1>
+    <span id="status-badge" class="status-badge status-offline">Connecting...</span>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="tasks">Tasks</div>
+    <div class="tab" data-tab="org">Org Chart</div>
+    <div class="tab" data-tab="settings">Settings</div>
+    <div class="tab" data-tab="docs">User Guide</div>
+  </div>
+
+  <!-- ═══ OVERVIEW TAB ═══ -->
+  <div class="tab-content active" id="tab-overview">
+    <div class="grid">
+      <div class="card">
+        <h3>Uptime</h3>
+        <div class="value" id="uptime">--</div>
+      </div>
+      <div class="card">
+        <h3>Session Cost</h3>
+        <div class="value" id="cost">$0.00</div>
+        <div class="sub" id="tokens">0 tokens</div>
+      </div>
+      <div class="card">
+        <h3>Active Agents</h3>
+        <div class="value" id="agents-count">0</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <h2 style="margin-bottom:0">💬 Chat</h2>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:0.8rem;color:var(--muted)">Bot:</label>
+          <select id="chat-bot-select" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);font-size:0.85rem;outline:none">
+            <option value="manager">🤖 Manager</option>
+          </select>
+          <button class="btn btn-outline" id="btn-history" style="padding:6px 12px;font-size:0.8rem">📜 History</button>
+        </div>
+      </div>
+      <div id="chat">
+        <div id="chat-messages"></div>
+        <div id="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Send a message..." autocomplete="off">
+          <button id="chat-send">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>🤖 Agents</h2>
+      <table>
+        <thead><tr><th>Run ID</th><th>Task</th><th>Model</th><th>Status</th><th>Cost</th></tr></thead>
+        <tbody id="agents-table"></tbody>
+      </table>
+      <div id="agents-empty" class="empty-state" style="display:none">No agents running</div>
+    </div>
+
+    <div class="section">
+      <h2>📋 Logs</h2>
+      <div id="logs"></div>
+    </div>
+  </div>
+
+  <!-- ═══ TASKS TAB ═══ -->
+  <div class="tab-content" id="tab-tasks">
+    <div class="section">
+      <h2>📁 Work Tasks</h2>
+      <div id="tasks-list"></div>
+      <div id="tasks-empty" class="empty-state" style="display:none">No tasks found</div>
+    </div>
+    <div class="section" id="file-viewer-section" style="display:none">
+      <div class="breadcrumb" id="file-breadcrumb"></div>
+      <div class="file-viewer">
+        <pre id="file-content"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ORG CHART TAB ═══ -->
+  <div class="tab-content" id="tab-org">
+    <div class="section">
+      <h2>🏗️ Organisation</h2>
+      <div id="org-chart" class="org-chart"></div>
+    </div>
+  </div>
+
+  <!-- ═══ SETTINGS TAB ═══ -->
+  <div class="tab-content" id="tab-settings">
+    <div class="section">
+      <h2>⚙️ Configuration</h2>
+      <div class="form-grid">
+        <div>
+          <h3 style="font-size:0.9rem;margin-bottom:12px;color:var(--muted)">Models</h3>
+          <div class="form-group">
+            <label>Manager (triage)</label>
+            <input id="cfg-model-manager" type="text">
+          </div>
+          <div class="form-group">
+            <label>Quick</label>
+            <input id="cfg-model-quick" type="text">
+          </div>
+          <div class="form-group">
+            <label>Standard</label>
+            <input id="cfg-model-standard" type="text">
+          </div>
+          <div class="form-group">
+            <label>Complex</label>
+            <input id="cfg-model-complex" type="text">
+          </div>
+        </div>
+        <div>
+          <h3 style="font-size:0.9rem;margin-bottom:12px;color:var(--muted)">Agent Limits</h3>
+          <div class="form-group">
+            <label>Max Concurrent Agents</label>
+            <input id="cfg-max-concurrent" type="number" min="1" max="20">
+          </div>
+          <div class="form-group">
+            <label>Max Turns per Agent</label>
+            <input id="cfg-max-turns" type="number" min="1" max="200">
+          </div>
+          <div class="form-group">
+            <label>Max Tokens</label>
+            <input id="cfg-max-tokens" type="number" min="1024" max="65536">
+          </div>
+          <h3 style="font-size:0.9rem;margin:20px 0 12px;color:var(--muted)">Tools</h3>
+          <div class="form-group">
+            <label class="toggle">
+              <input id="cfg-web-enabled" type="checkbox">
+              Web search enabled
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="toggle">
+              <input id="cfg-shell-confirm" type="checkbox">
+              Require shell confirmation
+            </label>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center">
+        <button class="btn" id="save-config">Save Configuration</button>
+        <span class="save-status" id="save-status"></span>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:12px">Changes are saved to config.toml. Restart DevMan to apply.</p>
+    </div>
+
+    <div class="section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <h2 style="margin-bottom:0">🗑️ Temp Files</h2>
+        <button class="btn btn-outline" id="btn-clear-tmp" style="padding:6px 12px;font-size:0.8rem">Clear All</button>
+      </div>
+      <p style="font-size:0.85rem;color:var(--muted)" id="tmp-status">Loading...</p>
+    </div>
+  </div>
+
+  <!-- ═══ DOCS TAB ═══ -->
+  <div class="tab-content" id="tab-docs">
+    <div class="section docs-content" id="docs-content">
+      <div class="empty-state">Loading documentation...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const WS_BASE = API.replace('http', 'ws');
+
+// ─── Tab Navigation ─────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    // Lazy-load tab data
+    if (tab.dataset.tab === 'tasks') loadTasks();
+    if (tab.dataset.tab === 'org') loadOrg();
+    if (tab.dataset.tab === 'settings') { loadConfig(); loadTmp(); }
+    if (tab.dataset.tab === 'docs') loadDocs();
+  });
+});
+
+// ─── Status Polling ─────────────────────────────────────────────
+async function updateStatus() {
+  try {
+    const r = await fetch(API + '/api/status');
+    const d = await r.json();
+    document.getElementById('status-badge').textContent = 'Online';
+    document.getElementById('status-badge').className = 'status-badge status-online';
+    document.getElementById('uptime').textContent = d.uptime || '--';
+    document.getElementById('cost').textContent = '$' + (d.cost_usd || 0).toFixed(4);
+    document.getElementById('tokens').textContent = (d.total_tokens || 0).toLocaleString() + ' tokens';
+  } catch(e) {
+    document.getElementById('status-badge').textContent = 'Offline';
+    document.getElementById('status-badge').className = 'status-badge status-offline';
+  }
+}
+
+async function updateAgents() {
+  try {
+    const r = await fetch(API + '/api/agents');
+    const agents = await r.json();
+    const tbody = document.getElementById('agents-table');
+    const empty = document.getElementById('agents-empty');
+    const running = agents.filter(a => a.status === 'Running').length;
+    document.getElementById('agents-count').textContent = running;
+    if (agents.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+      tbody.innerHTML = agents.map(a => `
+        <tr>
+          <td style="font-family:monospace;font-size:0.8rem">${a.run_id.slice(0,24)}</td>
+          <td>${a.task_id}</td>
+          <td>${a.model}</td>
+          <td><span class="tag tag-${a.status.toLowerCase()}">${a.status}</span></td>
+          <td>$${(a.cost_usd || 0).toFixed(4)}</td>
+        </tr>
+      `).join('');
+    }
+  } catch(e) {}
+}
+
+// ─── Bot Selector ───────────────────────────────────────────────
+async function loadBots() {
+  try {
+    const r = await fetch(API + '/api/bots');
+    const bots = await r.json();
+    const sel = document.getElementById('chat-bot-select');
+    sel.innerHTML = bots.map(b => {
+      const icon = b.name === 'manager' ? '👑' : '🤖';
+      const tasks = b.tasks.join(', ');
+      return `<option value="${b.name}">${icon} ${b.name} (${tasks})</option>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ─── Chat ───────────────────────────────────────────────────────
+let chatWs = null;
+let currentChatBot = 'manager';
+
+function connectChat(bot) {
+  bot = bot || currentChatBot;
+  currentChatBot = bot;
+  if (chatWs) { chatWs.onclose = null; chatWs.close(); }
+  chatWs = new WebSocket(WS_BASE + '/ws/chat?bot=' + encodeURIComponent(bot));
+  chatWs.onmessage = (e) => {
+    const msgs = document.getElementById('chat-messages');
+    const div = document.createElement('div');
+    const data = JSON.parse(e.data);
+    div.className = 'msg-' + (data.role || 'assistant');
+    div.textContent = (data.role === 'user' ? 'You: ' : '🔧 ') + data.text;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+  };
+  chatWs.onclose = () => setTimeout(() => connectChat(currentChatBot), 3000);
+}
+
+document.getElementById('chat-bot-select').addEventListener('change', (e) => {
+  document.getElementById('chat-messages').innerHTML = '';
+  connectChat(e.target.value);
+});
+
+document.getElementById('btn-history').addEventListener('click', async () => {
+  const bot = document.getElementById('chat-bot-select').value;
+  const msgs = document.getElementById('chat-messages');
+  msgs.innerHTML = '<div style="color:var(--muted);padding:8px">Loading history...</div>';
+  try {
+    const r = await fetch(API + '/api/bots/' + encodeURIComponent(bot) + '/history');
+    const history = await r.json();
+    msgs.innerHTML = '';
+    if (history.length === 0) {
+      msgs.innerHTML = '<div style="color:var(--muted);padding:8px">No chat history found for this bot.</div>';
+      return;
+    }
+    history.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'msg-' + m.role;
+      const prefix = m.role === 'user' ? 'You: ' : '🔧 ';
+      // Truncate very long messages in the display
+      const text = m.text.length > 500 ? m.text.slice(0, 500) + '...' : m.text;
+      div.textContent = prefix + text;
+      msgs.appendChild(div);
+    });
+    msgs.scrollTop = msgs.scrollHeight;
+  } catch(e) {
+    msgs.innerHTML = '<div style="color:var(--red);padding:8px">Failed to load history</div>';
+  }
+});
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !chatWs) return;
+  chatWs.send(JSON.stringify({ text }));
+  const msgs = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'msg-user';
+  div.textContent = 'You: ' + text;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  input.value = '';
+}
+
+document.getElementById('chat-send').addEventListener('click', sendChat);
+document.getElementById('chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChat();
+});
+
+// ─── Logs ───────────────────────────────────────────────────────
+let logWs = null;
+function addLogLine(text) {
+  const logs = document.getElementById('logs');
+  const div = document.createElement('div');
+  const cl = text.includes('\u274c') || text.includes('Error') ? 'log-error'
+           : text.includes('\u26a0') ? 'log-warn' : 'log-info';
+  div.className = 'log-line ' + cl;
+  div.textContent = text;
+  logs.appendChild(div);
+  if (logs.children.length > 500) logs.removeChild(logs.firstChild);
+  logs.scrollTop = logs.scrollHeight;
+}
+async function connectLogs() {
+  try {
+    const r = await fetch(API + '/api/logs');
+    const lines = await r.json();
+    lines.forEach(addLogLine);
+  } catch(e) {}
+  logWs = new WebSocket(WS_BASE + '/ws/logs');
+  logWs.onmessage = (e) => addLogLine(e.data);
+  logWs.onclose = () => setTimeout(connectLogs, 3000);
+}
+
+// ─── Tasks ──────────────────────────────────────────────────────
+async function loadTasks() {
+  try {
+    const r = await fetch(API + '/api/tasks');
+    const tasks = await r.json();
+    const container = document.getElementById('tasks-list');
+    const empty = document.getElementById('tasks-empty');
+
+    if (tasks.length === 0) {
+      container.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    container.innerHTML = tasks.map(t => `
+      <div class="task-card" onclick="showTaskFiles('${t.slug}', ${JSON.stringify(t.files).replace(/"/g, '&quot;')})">
+        <h3>📋 ${t.slug}</h3>
+        <div class="task-meta">${t.file_count} file${t.file_count !== 1 ? 's' : ''} · ${formatBytes(t.total_bytes)}</div>
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+function formatBytes(b) {
+  if (b === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function showTaskFiles(slug, files) {
+  const section = document.getElementById('file-viewer-section');
+  section.style.display = 'block';
+
+  const bc = document.getElementById('file-breadcrumb');
+  bc.innerHTML = `<a onclick="loadTasks();document.getElementById('file-viewer-section').style.display='none'">Tasks</a> / <strong>${slug}</strong>`;
+
+  const content = document.getElementById('file-content');
+  if (files.length === 0) {
+    content.textContent = '(no files)';
+    return;
+  }
+
+  // Render as a file list
+  const list = files.filter(f => !f.is_dir).map(f => `
+    <li onclick="viewFile('${slug}', '${f.path}')">
+      📄 ${f.path} <span class="size">${formatBytes(f.size)}</span>
+    </li>
+  `).join('');
+  content.innerHTML = `<ul class="file-list">${list}</ul>`;
+}
+
+async function viewFile(slug, path) {
+  const content = document.getElementById('file-content');
+  content.textContent = 'Loading...';
+
+  const bc = document.getElementById('file-breadcrumb');
+  bc.innerHTML = `<a onclick="loadTasks();document.getElementById('file-viewer-section').style.display='none'">Tasks</a> / <a onclick="loadTasks()">${slug}</a> / <strong>${path}</strong>`;
+
+  try {
+    const r = await fetch(API + '/api/tasks/' + slug + '/file?path=' + encodeURIComponent(path));
+    if (!r.ok) throw new Error(r.statusText);
+    content.textContent = await r.text();
+  } catch(e) {
+    content.textContent = 'Error loading file: ' + e.message;
+  }
+}
+
+// ─── Org Chart ──────────────────────────────────────────────────
+async function loadOrg() {
+  try {
+    const r = await fetch(API + '/api/org');
+    const root = await r.json();
+    document.getElementById('org-chart').innerHTML = renderOrgNode(root, true);
+  } catch(e) {}
+}
+
+function renderOrgNode(node, isRoot) {
+  const icon = node.role === 'manager' ? '👑' : node.role === 'scoped' ? '🤖' : '⚡';
+  const tasks = node.tasks.join(', ');
+  const modelShort = node.model.replace('claude-', '').replace(/-\d{8}$/, '');
+
+  let html = `<div class="org-connector${isRoot ? '' : ''}">
+    <div class="org-node ${node.role}">
+      <div class="node-name"><span class="node-status"></span>${icon} ${node.name}</div>
+      <div class="node-role">${node.role}</div>
+      <div class="node-model">${modelShort}</div>
+      <div class="node-tasks">${tasks}</div>
+    </div>`;
+
+  if (node.children && node.children.length > 0) {
+    const multiClass = node.children.length > 1 ? ' multi' : '';
+    html += `<div class="org-children${multiClass}">`;
+    html += node.children.map(c => renderOrgNode(c, false)).join('');
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ─── Settings ───────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const r = await fetch(API + '/api/config');
+    const c = await r.json();
+    document.getElementById('cfg-model-manager').value = c.models.manager || '';
+    document.getElementById('cfg-model-quick').value = c.models.quick || '';
+    document.getElementById('cfg-model-standard').value = c.models.standard || '';
+    document.getElementById('cfg-model-complex').value = c.models.complex || '';
+    document.getElementById('cfg-max-concurrent').value = c.agents.max_concurrent || 5;
+    document.getElementById('cfg-max-turns').value = c.agents.max_turns || 50;
+    document.getElementById('cfg-max-tokens').value = c.agents.max_tokens || 16384;
+    document.getElementById('cfg-web-enabled').checked = c.tools.web_enabled;
+    document.getElementById('cfg-shell-confirm').checked = c.tools.shell_confirm;
+  } catch(e) {}
+}
+
+document.getElementById('save-config').addEventListener('click', async () => {
+  const status = document.getElementById('save-status');
+  status.textContent = 'Saving...';
+  status.style.color = 'var(--muted)';
+
+  const body = {
+    models: {
+      manager: document.getElementById('cfg-model-manager').value,
+      quick: document.getElementById('cfg-model-quick').value,
+      standard: document.getElementById('cfg-model-standard').value,
+      complex: document.getElementById('cfg-model-complex').value,
+    },
+    tools: {
+      web_enabled: document.getElementById('cfg-web-enabled').checked,
+      shell_confirm: document.getElementById('cfg-shell-confirm').checked,
+    },
+    agents: {
+      max_concurrent: parseInt(document.getElementById('cfg-max-concurrent').value),
+      max_turns: parseInt(document.getElementById('cfg-max-turns').value),
+      max_tokens: parseInt(document.getElementById('cfg-max-tokens').value),
+    },
+  };
+
+  try {
+    const r = await fetch(API + '/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = '✅ ' + (d.note || 'Saved');
+      status.style.color = 'var(--green)';
+    } else {
+      status.textContent = '❌ Failed';
+      status.style.color = 'var(--red)';
+    }
+  } catch(e) {
+    status.textContent = '❌ ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+
+  setTimeout(() => { status.textContent = ''; }, 5000);
+});
+
+// Tmp files
+async function loadTmp() {
+  try {
+    const r = await fetch(API + '/api/tmp');
+    const d = await r.json();
+    document.getElementById('tmp-status').textContent =
+      d.file_count === 0 ? 'No temp files' : `${d.file_count} files (${formatBytes(d.total_bytes)})`;
+  } catch(e) {}
+}
+
+document.getElementById('btn-clear-tmp').addEventListener('click', async () => {
+  try {
+    const r = await fetch(API + '/api/tmp/clear', { method: 'POST' });
+    const d = await r.json();
+    document.getElementById('tmp-status').textContent = `Cleared ${d.cleared} items`;
+    setTimeout(loadTmp, 2000);
+  } catch(e) {}
+});
+
+// ─── Docs ───────────────────────────────────────────────────────
+async function loadDocs() {
+  const el = document.getElementById('docs-content');
+  if (el.dataset.loaded) return;
+  try {
+    const r = await fetch(API + '/api/docs');
+    const md = await r.text();
+    el.innerHTML = renderMarkdown(md);
+    el.dataset.loaded = '1';
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Failed to load documentation</div>';
+  }
+}
+
+function renderMarkdown(md) {
+  // Simple markdown → HTML (covers the README well enough)
+  let html = md
+    // Code blocks
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre><code>${esc(code.trim())}</code></pre>`)
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Headers
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Bold + italic
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+    // Images (badges etc)
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" style="max-width:100%">')
+    // Horizontal rules
+    .replace(/^---+$/gm, '<hr>')
+    // Blockquotes
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    // Tables
+    .replace(/^\|(.+)\|$/gm, (match) => {
+      const cells = match.split('|').filter(c => c.trim()).map(c => c.trim());
+      if (cells.every(c => /^[-:]+$/.test(c))) return '<!-- sep -->';
+      const tag = 'td';
+      return '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+    });
+
+  // Wrap table rows
+  html = html.replace(/((<tr>.*<\/tr>\n?)+)/g, '<table>$1</table>');
+  html = html.replace(/<!-- sep -->\n?/g, '');
+
+  // Lists (basic)
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, (m) => '<ul>' + m + '</ul>');
+
+  // Paragraphs (lines not already tagged)
+  html = html.replace(/^(?!<[a-z])(.+)$/gm, '<p>$1</p>');
+  // Clean up empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/g, '');
+
+  return html;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── Init ───────────────────────────────────────────────────────
+updateStatus();
+updateAgents();
+loadBots();
+setInterval(updateStatus, 5000);
+setInterval(updateAgents, 5000);
+connectChat('manager');
+connectLogs();
+</script>
+</body>
+</html>

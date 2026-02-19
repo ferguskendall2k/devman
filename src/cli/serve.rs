@@ -13,6 +13,8 @@ use crate::config::{Config, ScopedBotConfig};
 use crate::context::ContextManager;
 use crate::cost::CostTracker;
 use crate::cron::CronScheduler;
+use crate::dashboard::{self, SharedState as DashboardState, broadcast_log};
+use crate::dashboard::api::AgentInfo;
 use crate::memory::{MemoryManager, TaskStorage};
 use crate::telegram::api::TelegramBot;
 use crate::telegram::types::TgMessage;
@@ -132,6 +134,7 @@ async fn handle_message(
     github_token: &Option<String>,
     cost_tracker: &Arc<RwLock<CostTracker>>,
     config: &Config,
+    dash: Option<&DashboardState>,
 ) {
     let user = match msg.from {
         Some(ref u) => u,
@@ -144,14 +147,21 @@ async fn handle_message(
 
     let chat_id = msg.chat.id;
     let user_name = user.username.clone().unwrap_or_else(|| user.first_name.clone());
-    let download_dir = instance.chats_dir.join(format!("{chat_id}_files"));
+    let download_dir = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("devman")
+        .join("tmp");
 
     let text = extract_message_content(&instance.bot, &msg, &download_dir).await;
     if text.is_empty() {
         return;
     }
 
-    eprintln!("{} [{}] {} {}", "📩".dimmed(), instance.name.yellow(), user_name.cyan(), text.lines().next().unwrap_or("").dimmed());
+    let preview = text.lines().next().unwrap_or("").to_string();
+    eprintln!("{} [{}] {} {}", "📩".dimmed(), instance.name.yellow(), user_name.cyan(), preview.dimmed());
+    if let Some(d) = dash {
+        broadcast_log(d, format!("[{}] 📩 {} {}", instance.name, user_name, preview));
+    }
 
     let _ = instance.bot.send_typing(chat_id).await;
 
@@ -213,11 +223,21 @@ async fn handle_message(
                 tracing::error!("[{}] Failed to send reply: {e}", instance.name);
             }
 
+            if let Some(d) = dash {
+                broadcast_log(d, format!(
+                    "[{}] ✅ Reply sent ({} in / {} out tokens)",
+                    instance.name, result.usage.input_tokens, result.usage.output_tokens
+                ));
+            }
+
             let mut ct = cost_tracker.write().await;
             ct.record(&instance.model, Some(&instance.name), result.usage.input_tokens, result.usage.output_tokens, 0, 0);
         }
         Err(e) => {
             tracing::error!("[{}] Agent error: {e}", instance.name);
+            if let Some(d) = dash {
+                broadcast_log(d, format!("[{}] ❌ Agent error: {e}", instance.name));
+            }
             let _ = instance.bot.send_message(chat_id, &format!("❌ Error: {e}")).await;
         }
     }
@@ -253,17 +273,23 @@ pub async fn run(config: &Config) -> Result<()> {
     let tool_defs = tools::builtin_tool_definitions(config.tools.web_enabled, config.github.is_some());
 
     // Dashboard
-    if config.dashboard.enabled {
-        let dash_config = config.clone();
-        let dash_cost = cost_tracker.clone();
-        tokio::spawn(async move {
-            if let Err(e) = crate::dashboard::start(dash_config, dash_cost).await {
-                tracing::error!("Dashboard error: {e}");
+    let dash_state: Option<DashboardState> = if config.dashboard.enabled {
+        let chats_dir = state_dir.join("chats");
+        match dashboard::start(config.clone(), cost_tracker.clone(), Some(chats_dir)).await {
+            Ok(state) => {
+                broadcast_log(&state, "🚀 DevMan started".into());
+                eprintln!("{} Dashboard at {}", "🌐".dimmed(),
+                    format!("http://{}:{}", config.dashboard.bind, config.dashboard.port).cyan().bold());
+                Some(state)
             }
-        });
-        eprintln!("{} Dashboard at {}", "🌐".dimmed(),
-            format!("http://{}:{}", config.dashboard.bind, config.dashboard.port).cyan().bold());
-    }
+            Err(e) => {
+                tracing::error!("Dashboard error: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // --- Manager bot ---
     let manager_token = auth.telegram_bot_token().context(
@@ -371,12 +397,10 @@ pub async fn run(config: &Config) -> Result<()> {
         // Check restart flag (set by assign_bot/remove_bot tools)
         if RESTART_REQUESTED.load(Ordering::SeqCst) {
             RESTART_REQUESTED.store(false, Ordering::SeqCst);
-            eprintln!("\n{}", "🔄 Restart requested — re-execing...".yellow());
+            eprintln!("\n{}", "🔄 Restart requested — exiting for systemd restart...".yellow());
             cron.save()?;
-
-            let exe = std::env::current_exe().context("finding current executable")?;
-            let err = exec_process(&exe, &["serve"]);
-            anyhow::bail!("Failed to re-exec: {err}");
+            // Exit cleanly — systemd will restart us with the new config
+            std::process::exit(0);
         }
 
         tokio::select! {
@@ -390,6 +414,9 @@ pub async fn run(config: &Config) -> Result<()> {
                 let due_jobs = cron.tick();
                 for job in due_jobs {
                     eprintln!("{} Cron fired: {}", "⏰".dimmed(), job.name);
+                    if let Some(ref d) = dash_state {
+                        broadcast_log(d, format!("⏰ Cron fired: {}", job.name));
+                    }
                     match &job.action {
                         crate::cron::CronAction::SystemEvent { text } => {
                             eprintln!("  {}", text.dimmed());
@@ -432,7 +459,7 @@ pub async fn run(config: &Config) -> Result<()> {
                             for update in updates {
                                 bot.offset = update.update_id + 1;
                                 if let Some(msg) = update.message {
-                                    handle_message(bot, msg, &api_key, &tool_defs, &brave_api_key, &github_token, &cost_tracker, config).await;
+                                    handle_message(bot, msg, &api_key, &tool_defs, &brave_api_key, &github_token, &cost_tracker, config, dash_state.as_ref()).await;
                                 }
                             }
                         }
@@ -447,9 +474,15 @@ pub async fn run(config: &Config) -> Result<()> {
                     consecutive_poll_errors += 1;
                     if consecutive_poll_errors == 1 {
                         tracing::warn!("Network issue detected — backing off");
+                        if let Some(ref d) = dash_state {
+                            broadcast_log(d, "⚠️ Network issue detected — backing off".into());
+                        }
                     }
                 } else if consecutive_poll_errors > 0 {
                     tracing::info!("Network recovered after {} retries", consecutive_poll_errors);
+                    if let Some(ref d) = dash_state {
+                        broadcast_log(d, format!("✅ Network recovered after {} retries", consecutive_poll_errors));
+                    }
                     consecutive_poll_errors = 0;
                 }
             }
