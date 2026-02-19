@@ -3,6 +3,7 @@ use colored::Colorize;
 
 use crate::client::{AnthropicClient, StreamEvent};
 use crate::context::ContextManager;
+use crate::memory::TaskStorage;
 use crate::tools;
 use crate::types::{ContentBlock, Thinking, ToolDefinition, Usage};
 
@@ -18,6 +19,7 @@ pub struct AgentLoop {
     thinking: Thinking,
     brave_api_key: Option<String>,
     github_token: Option<String>,
+    task_storage: Option<TaskStorage>,
 }
 
 impl AgentLoop {
@@ -44,7 +46,14 @@ impl AgentLoop {
             thinking,
             brave_api_key,
             github_token,
+            task_storage: None,
         }
+    }
+
+    /// Set task-scoped storage for this agent
+    pub fn with_storage(mut self, storage: TaskStorage) -> Self {
+        self.task_storage = Some(storage);
+        self
     }
 
     /// Run a single user turn — may result in multiple API calls if tools are used
@@ -143,7 +152,7 @@ impl AgentLoop {
                 eprintln!("\n{} {}", "🔧".dimmed(), name.cyan());
 
                 let result =
-                    tools::execute_tool(&name, &input, self.brave_api_key.as_deref(), None, self.github_token.as_deref()).await;
+                    tools::execute_tool(&name, &input, self.brave_api_key.as_deref(), None, self.github_token.as_deref(), self.task_storage.as_ref()).await;
 
                 let (content, is_error) = match result {
                     Ok(output) => (output, false),

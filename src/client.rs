@@ -171,7 +171,12 @@ impl AnthropicClient {
             .header("anthropic-version", API_VERSION);
 
         if is_oauth {
-            req_builder = req_builder.header("authorization", format!("Bearer {}", self.api_key));
+            // OAuth tokens require Bearer auth + Claude Code identity headers
+            req_builder = req_builder
+                .header("authorization", format!("Bearer {}", self.api_key))
+                .header("anthropic-beta", "claude-code-20250219,oauth-2025-04-20")
+                .header("user-agent", "claude-cli/1.0.0 (external, cli)")
+                .header("x-app", "cli");
         } else {
             req_builder = req_builder.header("x-api-key", &self.api_key);
         }

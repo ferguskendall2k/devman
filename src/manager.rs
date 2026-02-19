@@ -85,6 +85,10 @@ impl Manager {
 
         let system_prompt = MANAGER_SYSTEM_PROMPT.to_string();
 
+        // Manager gets global storage (can see all task storage)
+        let mm = crate::memory::MemoryManager::new(crate::memory::MemoryManager::default_root());
+        let global_storage = mm.global_storage();
+
         let agent = AgentLoop::new(
             client,
             context,
@@ -96,7 +100,7 @@ impl Manager {
             Thinking::Off,
             brave_api_key.clone(),
             github_token.clone(),
-        );
+        ).with_storage(global_storage);
 
         let orchestrator = Orchestrator::new(config.clone(), api_key, brave_api_key, github_token);
 

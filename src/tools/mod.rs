@@ -8,6 +8,7 @@ pub mod patch;
 pub mod read;
 pub mod research;
 pub mod shell;
+pub mod storage;
 pub mod web_fetch;
 pub mod voice;
 pub mod web_search;
@@ -15,7 +16,7 @@ pub mod write;
 
 use anyhow::Result;
 
-use crate::memory::MemoryManager;
+use crate::memory::{MemoryManager, TaskStorage};
 use crate::types::ToolDefinition;
 
 /// Execute a tool call by name
@@ -25,6 +26,7 @@ pub async fn execute_tool(
     brave_api_key: Option<&str>,
     memory_manager: Option<&MemoryManager>,
     github_token: Option<&str>,
+    task_storage: Option<&TaskStorage>,
 ) -> Result<String> {
     match name {
         "shell" => shell::execute(input).await,
@@ -57,6 +59,17 @@ pub async fn execute_tool(
                 "memory_load_task" => memory::memory_load_task_execute(input, mm).await,
                 "memory_create_task" => memory::memory_create_task_execute(input, mm).await,
                 "memory_update_index" => memory::memory_update_index_execute(input, mm).await,
+                _ => unreachable!(),
+            }
+        }
+        "storage_write" | "storage_read" | "storage_list" | "storage_delete" => {
+            let ts = task_storage
+                .ok_or_else(|| anyhow::anyhow!("storage not available for this agent"))?;
+            match name {
+                "storage_write" => storage::storage_write_execute(input, ts).await,
+                "storage_read" => storage::storage_read_execute(input, ts).await,
+                "storage_list" => storage::storage_list_execute(input, ts).await,
+                "storage_delete" => storage::storage_delete_execute(input, ts).await,
                 _ => unreachable!(),
             }
         }
@@ -106,5 +119,10 @@ pub fn builtin_tool_definitions(web_enabled: bool, github_enabled: bool) -> Vec<
     tools.push(memory::memory_load_task_definition());
     tools.push(memory::memory_create_task_definition());
     tools.push(memory::memory_update_index_definition());
+    // Storage tools
+    tools.push(storage::storage_write_definition());
+    tools.push(storage::storage_read_definition());
+    tools.push(storage::storage_list_definition());
+    tools.push(storage::storage_delete_definition());
     tools
 }

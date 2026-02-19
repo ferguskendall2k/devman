@@ -10,6 +10,7 @@ use crate::client::AnthropicClient;
 use crate::config::Config;
 use crate::context::ContextManager;
 use crate::cost::CostTracker;
+use crate::memory::{MemoryManager, TaskStorage};
 use crate::tools;
 use crate::types::{Thinking, ToolDefinition, Usage};
 
@@ -133,6 +134,14 @@ impl Orchestrator {
         let run_id_clone = run_id.clone();
         let tx = self.result_tx.clone();
 
+        // Create scoped storage for this sub-agent (task_id as slug)
+        let task_slug = task_id
+            .to_lowercase()
+            .replace(' ', "-")
+            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+        let mm = MemoryManager::new(MemoryManager::default_root());
+        let task_storage = mm.task_storage(&task_slug);
+
         tokio::spawn(async move {
             let mut agent = AgentLoop::new(
                 client,
@@ -145,7 +154,7 @@ impl Orchestrator {
                 thinking,
                 brave_key,
                 gh_token,
-            );
+            ).with_storage(task_storage);
 
             match agent.run_turn(&message_owned).await {
                 Ok(result) => {
