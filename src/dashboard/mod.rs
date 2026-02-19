@@ -4,13 +4,11 @@ pub mod ws;
 use anyhow::Result;
 use axum::{
     Router,
-    routing::{get, post},
-    extract::State,
+    routing::get,
     response::{Html, IntoResponse},
-    http::StatusCode,
 };
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 
 use crate::config::Config;
 use crate::cost::CostTracker;
@@ -20,9 +18,16 @@ pub struct DashboardState {
     pub config: Config,
     pub cost_tracker: Arc<RwLock<CostTracker>>,
     pub start_time: chrono::DateTime<chrono::Utc>,
+    /// Broadcast channel for log lines
+    pub log_tx: broadcast::Sender<String>,
 }
 
 pub type SharedState = Arc<DashboardState>;
+
+/// Send a log line to all connected dashboard clients
+pub fn broadcast_log(state: &SharedState, msg: String) {
+    let _ = state.log_tx.send(msg);
+}
 
 /// Start the dashboard HTTP server
 pub async fn start(
@@ -31,10 +36,13 @@ pub async fn start(
 ) -> Result<()> {
     let bind = format!("{}:{}", config.dashboard.bind, config.dashboard.port);
 
+    let (log_tx, _) = broadcast::channel::<String>(256);
+
     let state = Arc::new(DashboardState {
         config: config.clone(),
         cost_tracker,
         start_time: chrono::Utc::now(),
+        log_tx,
     });
 
     let app = Router::new()

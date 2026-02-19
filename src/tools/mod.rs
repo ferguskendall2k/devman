@@ -1,3 +1,4 @@
+pub mod custom;
 pub mod edit;
 pub mod git;
 pub mod github;

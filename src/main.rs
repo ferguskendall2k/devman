@@ -14,6 +14,7 @@ mod improve;
 mod manager;
 mod memory;
 mod orchestrator;
+mod render;
 mod telegram;
 mod tools;
 mod types;
@@ -43,6 +44,36 @@ enum Commands {
     Auth,
     /// Start Telegram bot + agent daemon
     Serve,
+    /// Show cost tracking summary
+    Cost,
+    /// Manage cron jobs
+    Cron {
+        #[command(subcommand)]
+        action: CronAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum CronAction {
+    /// List all jobs
+    List,
+    /// Add a job
+    Add {
+        /// Job name
+        #[arg(short, long)]
+        name: String,
+        /// Cron expression (e.g. "*/5 * * * *")
+        #[arg(short, long)]
+        schedule: String,
+        /// Agent message to run
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Remove a job
+    Remove {
+        /// Job ID
+        id: String,
+    },
 }
 
 #[tokio::main]
@@ -88,6 +119,79 @@ async fn main() -> Result<()> {
                 println!("Telegram: configured");
             } else {
                 println!("Telegram: not configured");
+            }
+            Ok(())
+        }
+        Some(Commands::Cost) => {
+            let state_dir = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("devman");
+            let cost_path = state_dir.join("cost-tracker.json");
+            if cost_path.exists() {
+                let data = std::fs::read_to_string(&cost_path)?;
+                let tracker: cost::CostTracker = serde_json::from_str(&data)?;
+                println!("{}", tracker.summary());
+            } else {
+                println!("No cost data yet. Run `devman chat` or `devman serve` first.");
+            }
+            Ok(())
+        }
+        Some(Commands::Cron { action }) => {
+            let state_dir = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("devman");
+            std::fs::create_dir_all(&state_dir)?;
+            let mut scheduler = cron::CronScheduler::new(state_dir.join("cron-jobs.json"));
+
+            match action {
+                CronAction::List => {
+                    let jobs = scheduler.list();
+                    if jobs.is_empty() {
+                        println!("No cron jobs configured.");
+                    } else {
+                        for job in jobs {
+                            println!(
+                                "{} [{}] {} — {:?} ({})",
+                                if job.enabled { "✅" } else { "⏸️" },
+                                &job.id[..8],
+                                job.name,
+                                job.schedule,
+                                if job.enabled { "enabled" } else { "disabled" }
+                            );
+                        }
+                    }
+                }
+                CronAction::Add { name, schedule, message } => {
+                    let job = cron::CronJob {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name: name.clone(),
+                        schedule: cron::Schedule::Cron { expr: schedule },
+                        action: cron::CronAction::AgentTask { message, model: None },
+                        enabled: true,
+                        last_run: None,
+                        next_run: None,
+                        created: chrono::Utc::now(),
+                    };
+                    let id = scheduler.add(job);
+                    scheduler.save()?;
+                    println!("Added cron job: {} ({})", name, &id[..8]);
+                }
+                CronAction::Remove { id } => {
+                    // Match by prefix
+                    let full_id = {
+                        let jobs = scheduler.list();
+                        jobs.iter()
+                            .find(|j| j.id.starts_with(&id))
+                            .map(|j| j.id.clone())
+                    };
+                    if let Some(full) = full_id {
+                        scheduler.remove(&full)?;
+                        scheduler.save()?;
+                        println!("Removed job {}", &full[..8]);
+                    } else {
+                        println!("No job matching '{id}'");
+                    }
+                }
             }
             Ok(())
         }

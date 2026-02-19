@@ -12,6 +12,7 @@ pub mod manager;
 pub mod memory;
 pub mod orchestrator;
 pub mod telegram;
+pub mod render;
 pub mod tools;
 pub mod types;
 pub mod voice;

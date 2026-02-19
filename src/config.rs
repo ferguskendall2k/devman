@@ -62,6 +62,7 @@ impl Default for ModelConfig {
 pub struct ToolsConfig {
     pub shell_confirm: bool,
     pub web_enabled: bool,
+    pub custom: Vec<CustomToolConfig>,
 }
 
 impl Default for ToolsConfig {
@@ -69,8 +70,18 @@ impl Default for ToolsConfig {
         Self {
             shell_confirm: false,
             web_enabled: true,
+            custom: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomToolConfig {
+    pub name: String,
+    pub description: String,
+    pub command: Vec<String>,
+    pub input_schema: String,
+    pub timeout: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
