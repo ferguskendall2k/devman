@@ -73,12 +73,12 @@ impl AgentLoop {
             }
 
             // Check if we should compact
-            if self.context.estimated_tokens() > 150_000 {
-                eprintln!("{}", "⚡ Compacting conversation...".dimmed());
-                self.context.compact(10);
+            if self.context.estimated_tokens() > 80_000 {
+                eprintln!("{}", "⚡ Compacting conversation (token limit)...".dimmed());
+                self.context.compact(6);
             }
 
-            let response = self
+            let response = match self
                 .client
                 .send_message(
                     &self.model,
@@ -88,7 +88,6 @@ impl AgentLoop {
                     self.max_tokens,
                     self.thinking,
                     &mut |event| {
-                        // Stream text to terminal as it arrives
                         match event {
                             StreamEvent::ContentBlockDelta { delta, .. } => match delta {
                                 crate::client::DeltaInfo::TextDelta { text } => {
@@ -103,7 +102,20 @@ impl AgentLoop {
                         }
                     },
                 )
-                .await?;
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // Auto-compact and retry on context/token limit errors
+                    if err_str.contains("tool_use_id") || err_str.contains("too long") || err_str.contains("token") {
+                        eprintln!("\n{}", "⚡ API rejected context — compacting and retrying...".yellow());
+                        self.context.compact(4);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            };
 
             // Accumulate usage
             total_usage.input_tokens += response.usage.input_tokens;

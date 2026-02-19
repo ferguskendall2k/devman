@@ -168,11 +168,13 @@ async fn handle_message(
 
     let mut context = std::mem::replace(&mut chat.context, ContextManager::new());
 
-    // Auto-compact if conversation is getting too long
-    let max_history = instance.max_turns as usize * 2; // ~2 messages per turn
-    if context.messages.len() > max_history {
-        let keep = 10; // keep last 10 messages
-        eprintln!("{} [{}] Compacting context: {} msgs → ~{}", "🗜️".dimmed(), instance.name.yellow(), context.messages.len(), keep + 2);
+    // Auto-compact if conversation is getting too long (by count or tokens)
+    let max_history = instance.max_turns as usize * 2;
+    let est_tokens = context.estimated_tokens();
+    if context.messages.len() > max_history || est_tokens > 80_000 {
+        let keep = 6;
+        eprintln!("{} [{}] Compacting: {} msgs, ~{}k tokens → summary",
+            "🗜️".dimmed(), instance.name.yellow(), context.messages.len(), est_tokens / 1000);
         context.compact(keep);
     }
 
