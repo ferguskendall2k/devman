@@ -120,7 +120,7 @@ impl AnthropicClient {
         tools: &[ToolDefinition],
         max_tokens: u32,
         thinking: Thinking,
-        on_event: &mut dyn FnMut(StreamEvent),
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
     ) -> Result<StreamedResponse> {
         let api_messages = Self::convert_messages(messages);
 

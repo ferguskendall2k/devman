@@ -140,7 +140,7 @@ impl AgentLoop {
                 eprintln!("\n{} {}", "🔧".dimmed(), name.cyan());
 
                 let result =
-                    tools::execute_tool(&name, &input, self.brave_api_key.as_deref()).await;
+                    tools::execute_tool(&name, &input, self.brave_api_key.as_deref(), None).await;
 
                 let (content, is_error) = match result {
                     Ok(output) => (output, false),

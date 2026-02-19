@@ -7,6 +7,11 @@ mod client;
 mod cli;
 mod config;
 mod context;
+mod cost;
+mod manager;
+mod memory;
+mod orchestrator;
+mod telegram;
 mod tools;
 mod types;
 
@@ -31,6 +36,8 @@ enum Commands {
     Init,
     /// Show auth status
     Auth,
+    /// Start Telegram bot + agent daemon
+    Serve,
 }
 
 #[tokio::main]
@@ -50,6 +57,7 @@ async fn main() -> Result<()> {
         Some(Commands::Chat) | None => cli::chat::run(&config).await,
         Some(Commands::Run { message }) => cli::run::run(&config, &message).await,
         Some(Commands::Init) => cli::init::run().await,
+        Some(Commands::Serve) => cli::serve::run(&config).await,
         Some(Commands::Auth) => {
             let auth = auth::AuthStore::load()?;
             match auth.anthropic_api_key() {
