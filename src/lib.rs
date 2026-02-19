@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)]
-
 pub mod agent;
 pub mod auth;
 pub mod client;

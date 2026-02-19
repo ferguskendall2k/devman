@@ -58,6 +58,15 @@ pub async fn start(
         .route("/ws/logs", get(ws::logs_handler))
         .with_state(state);
 
+    // Warn if dashboard is bound to a non-loopback address (WebSocket has no auth)
+    if config.dashboard.bind != "127.0.0.1" && config.dashboard.bind != "localhost" {
+        tracing::warn!(
+            "Dashboard bound to {} — WebSocket endpoints have NO authentication! \
+             Consider binding to 127.0.0.1 or adding an auth layer.",
+            config.dashboard.bind
+        );
+    }
+
     tracing::info!("Dashboard starting on http://{bind}");
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;

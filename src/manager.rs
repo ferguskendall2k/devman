@@ -145,6 +145,8 @@ impl Manager {
             None,
             result.usage.input_tokens,
             result.usage.output_tokens,
+            0,
+            0,
         );
 
         Ok(result.text)

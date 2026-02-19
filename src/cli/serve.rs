@@ -127,7 +127,7 @@ pub async fn run(config: &Config) -> Result<()> {
                                 Ok(result) => {
                                     eprintln!("  Cron result: {}", &result.text[..result.text.len().min(200)]);
                                     let mut ct = cost_tracker.write().await;
-                                    ct.record(m, Some(&job.name), result.usage.input_tokens, result.usage.output_tokens);
+                                    ct.record(m, Some(&job.name), result.usage.input_tokens, result.usage.output_tokens, 0, 0);
                                 }
                                 Err(e) => eprintln!("  Cron error: {e}"),
                             }
@@ -227,7 +227,7 @@ pub async fn run(config: &Config) -> Result<()> {
 
                             // Track cost
                             let mut ct = cost_tracker.write().await;
-                            ct.record(&model, None, result.usage.input_tokens, result.usage.output_tokens);
+                            ct.record(&model, None, result.usage.input_tokens, result.usage.output_tokens, 0, 0);
                         }
                         Err(e) => {
                             tracing::error!("Agent error: {e}");

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -16,16 +17,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Check
         run: cargo check --all-targets
       - name: Test
         run: cargo test --all
       - name: Clippy
-        run: cargo clippy -- -W clippy::all
+        run: cargo clippy --all-targets -- -D warnings -A dead-code -A unused-imports
 
   build:
-    name: Build Release
+    name: Build (${{ matrix.artifact }})
     needs: check
     strategy:
       matrix:
@@ -48,21 +51,33 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/devman ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: target/${{ matrix.target }}/release/devman
+          path: ${{ matrix.artifact }}
 
   release:
     name: Release
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-      - name: Display artifacts
-        run: ls -R devman-*
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/devman-linux-x86_64/devman-linux-x86_64
+            artifacts/devman-macos-x86_64/devman-macos-x86_64
+            artifacts/devman-macos-aarch64/devman-macos-aarch64

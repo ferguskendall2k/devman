@@ -16,6 +16,10 @@ use crate::tools;
 use crate::types::Thinking;
 
 /// WebSocket handler for live chat
+///
+/// SECURITY: No authentication is performed on WebSocket connections.
+/// This is safe only when the dashboard is bound to localhost (127.0.0.1).
+/// If exposed on a public interface, an auth layer must be added.
 pub async fn chat_handler(
     ws: WebSocketUpgrade,
     State(state): State<SharedState>,
@@ -88,6 +92,8 @@ async fn handle_chat(mut socket: WebSocket, state: SharedState) {
                                     None,
                                     result.usage.input_tokens,
                                     result.usage.output_tokens,
+                                    0,
+                                    0,
                                 );
 
                                 let _ = state.log_tx.send(format!(
@@ -117,6 +123,8 @@ async fn send_json(socket: &mut WebSocket, role: &str, text: &str) -> Result<(),
 }
 
 /// WebSocket handler for live log streaming
+///
+/// SECURITY: No authentication — same assumptions as chat_handler above.
 pub async fn logs_handler(
     ws: WebSocketUpgrade,
     State(state): State<SharedState>,

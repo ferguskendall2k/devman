@@ -14,6 +14,8 @@ pub struct Cost {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub thinking_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
     pub estimated_cost_usd: f64,
 }
 
@@ -56,14 +58,21 @@ impl CostTracker {
         task_id: Option<&str>,
         input_tokens: u64,
         output_tokens: u64,
+        cache_read_tokens: u64,
+        cache_creation_tokens: u64,
     ) {
         let (input_price, output_price) = model_pricing(model);
+        // Cache reads are 90% cheaper than regular input; cache creation costs 25% more
         let cost_usd = (input_tokens as f64 * input_price / 1_000_000.0)
-            + (output_tokens as f64 * output_price / 1_000_000.0);
+            + (output_tokens as f64 * output_price / 1_000_000.0)
+            + (cache_read_tokens as f64 * input_price * 0.1 / 1_000_000.0)
+            + (cache_creation_tokens as f64 * input_price * 1.25 / 1_000_000.0);
 
         // Session total
         self.session_total.input_tokens += input_tokens;
         self.session_total.output_tokens += output_tokens;
+        self.session_total.cache_read_tokens += cache_read_tokens;
+        self.session_total.cache_creation_tokens += cache_creation_tokens;
         self.session_total.estimated_cost_usd += cost_usd;
 
         // By model
@@ -76,6 +85,8 @@ impl CostTracker {
             });
         model_entry.cost.input_tokens += input_tokens;
         model_entry.cost.output_tokens += output_tokens;
+        model_entry.cost.cache_read_tokens += cache_read_tokens;
+        model_entry.cost.cache_creation_tokens += cache_creation_tokens;
         model_entry.cost.estimated_cost_usd += cost_usd;
         model_entry.requests += 1;
 
@@ -90,6 +101,8 @@ impl CostTracker {
                 });
             task_entry.cost.input_tokens += input_tokens;
             task_entry.cost.output_tokens += output_tokens;
+            task_entry.cost.cache_read_tokens += cache_read_tokens;
+            task_entry.cost.cache_creation_tokens += cache_creation_tokens;
             task_entry.cost.estimated_cost_usd += cost_usd;
         }
     }

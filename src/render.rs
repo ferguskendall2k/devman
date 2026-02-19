@@ -1,5 +1,6 @@
 use colored::Colorize;
 use regex::Regex;
+use std::sync::OnceLock;
 
 /// Render markdown text for terminal display
 pub fn render_markdown(text: &str) -> String {
@@ -63,10 +64,17 @@ pub fn render_markdown(text: &str) -> String {
 
 /// Render inline markdown formatting
 fn render_inline(text: &str) -> String {
+    static BOLD_RE: OnceLock<Regex> = OnceLock::new();
+    static CODE_RE: OnceLock<Regex> = OnceLock::new();
+    static LINK_RE: OnceLock<Regex> = OnceLock::new();
+
+    let bold_re = BOLD_RE.get_or_init(|| Regex::new(r"\*\*(.+?)\*\*").unwrap());
+    let code_re = CODE_RE.get_or_init(|| Regex::new(r"`([^`]+)`").unwrap());
+    let link_re = LINK_RE.get_or_init(|| Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap());
+
     let mut result = text.to_string();
 
     // Bold: **text**
-    let bold_re = Regex::new(r"\*\*(.+?)\*\*").unwrap();
     result = bold_re
         .replace_all(&result, |caps: &regex::Captures| {
             format!("{}", caps[1].bold())
@@ -74,7 +82,6 @@ fn render_inline(text: &str) -> String {
         .to_string();
 
     // Inline code: `text`
-    let code_re = Regex::new(r"`([^`]+)`").unwrap();
     result = code_re
         .replace_all(&result, |caps: &regex::Captures| {
             format!("{}", caps[1].cyan())
@@ -82,7 +89,6 @@ fn render_inline(text: &str) -> String {
         .to_string();
 
     // Links: [text](url)
-    let link_re = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
     result = link_re
         .replace_all(&result, |caps: &regex::Captures| {
             format!("{} ({})", &caps[1], caps[2].dimmed())

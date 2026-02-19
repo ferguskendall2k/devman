@@ -142,8 +142,8 @@ impl AnthropicClient {
                     thinking_type: "enabled".into(),
                     budget_tokens: 2048,
                 });
-                // With thinking, max_tokens must be higher
-                request.max_tokens = request.max_tokens.max(4096);
+                // max_tokens must exceed budget_tokens by at least 4096 for output
+                request.max_tokens = request.max_tokens.max(8192);
             }
             Thinking::Medium => {
                 request.thinking = Some(ThinkingConfig {
@@ -157,7 +157,7 @@ impl AnthropicClient {
                     thinking_type: "enabled".into(),
                     budget_tokens: 32768,
                 });
-                request.max_tokens = request.max_tokens.max(32768);
+                request.max_tokens = request.max_tokens.max(65536);
             }
         }
 
@@ -383,7 +383,10 @@ impl AnthropicClient {
                     .to_string();
                 Some(StreamEvent::Error { message })
             }
-            _ => None,
+            other => {
+                tracing::debug!("Unknown SSE event type: {}", other);
+                None
+            }
         }
     }
 }

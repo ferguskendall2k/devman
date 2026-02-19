@@ -50,6 +50,8 @@ impl TelegramBot {
     }
 
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<TgMessage> {
+        // Try with Markdown first; if Telegram rejects it (unbalanced formatting),
+        // retry without parse_mode so the message still gets delivered.
         let resp: ApiResponse<TgMessage> = self
             .client
             .post(format!("{}sendMessage", self.base_url))
@@ -65,14 +67,38 @@ impl TelegramBot {
             .await
             .context("parsing sendMessage response")?;
 
-        if !resp.ok {
+        if resp.ok {
+            return resp.result.context("no message in response");
+        }
+
+        // Markdown failed — retry without parse_mode
+        tracing::debug!(
+            "Markdown send failed ({}), retrying as plain text",
+            resp.description.as_deref().unwrap_or("unknown")
+        );
+
+        let resp2: ApiResponse<TgMessage> = self
+            .client
+            .post(format!("{}sendMessage", self.base_url))
+            .json(&serde_json::json!({
+                "chat_id": chat_id,
+                "text": text,
+            }))
+            .send()
+            .await
+            .context("sending Telegram message (plain fallback)")?
+            .json()
+            .await
+            .context("parsing sendMessage response (plain fallback)")?;
+
+        if !resp2.ok {
             anyhow::bail!(
                 "sendMessage failed: {}",
-                resp.description.unwrap_or_default()
+                resp2.description.unwrap_or_default()
             );
         }
 
-        resp.result.context("no message in response")
+        resp2.result.context("no message in response")
     }
 
     pub async fn send_typing(&self, chat_id: i64) -> Result<()> {

@@ -79,7 +79,7 @@ fn test_persistence() {
 #[test]
 fn test_record_cost() {
     let mut ct = CostTracker::new();
-    ct.record("sonnet", None, 1000, 500);
+    ct.record("sonnet", None, 1000, 500, 0, 0);
     assert_eq!(ct.session_total.input_tokens, 1000);
     assert_eq!(ct.session_total.output_tokens, 500);
     assert!(ct.session_total.estimated_cost_usd > 0.0);
@@ -88,8 +88,8 @@ fn test_record_cost() {
 #[test]
 fn test_cost_by_model() {
     let mut ct = CostTracker::new();
-    ct.record("haiku", None, 1000, 1000);
-    ct.record("opus", None, 1000, 1000);
+    ct.record("haiku", None, 1000, 1000, 0, 0);
+    ct.record("opus", None, 1000, 1000, 0, 0);
     assert_eq!(ct.by_model.len(), 2);
     assert!(ct.by_model.contains_key("haiku"));
     assert!(ct.by_model.contains_key("opus"));
@@ -102,7 +102,7 @@ fn test_cost_by_model() {
 #[test]
 fn test_cost_summary() {
     let mut ct = CostTracker::new();
-    ct.record("sonnet", Some("task-1"), 500, 200);
+    ct.record("sonnet", Some("task-1"), 500, 200, 0, 0);
     let summary = ct.summary();
     assert!(summary.contains("Session:"));
     assert!(summary.contains("$"));

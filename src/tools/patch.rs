@@ -33,7 +33,7 @@ pub async fn execute(input: &serde_json::Value) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("missing 'patch' field"))?;
 
     // Write patch to temp file
-    let tmp_path = PathBuf::from(format!("/tmp/devman-patch-{}.patch", std::process::id()));
+    let tmp_path = PathBuf::from(format!("/tmp/devman-patch-{}.patch", uuid::Uuid::new_v4()));
     {
         let mut f = std::fs::File::create(&tmp_path)?;
         f.write_all(patch_content.as_bytes())?;

@@ -71,7 +71,10 @@ pub struct Orchestrator {
 
 impl Orchestrator {
     pub fn new(config: Config, api_key: String, brave_api_key: Option<String>, github_token: Option<String>) -> Self {
-        let state_dir = PathBuf::from(".devman/agents");
+        let state_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("devman")
+            .join("agents");
         let (result_tx, result_rx) = mpsc::channel(32);
         Self {
             config,
@@ -193,6 +196,8 @@ impl Orchestrator {
                                 Some(&record.task_id),
                                 usage.input_tokens,
                                 usage.output_tokens,
+                                0,
+                                0,
                             );
                         }
                     }

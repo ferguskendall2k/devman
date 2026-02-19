@@ -9,6 +9,7 @@ pub mod read;
 pub mod research;
 pub mod shell;
 pub mod web_fetch;
+pub mod voice;
 pub mod web_search;
 pub mod write;
 
@@ -59,6 +60,9 @@ pub async fn execute_tool(
                 _ => unreachable!(),
             }
         }
+        "tts" | "self_improve" => {
+            Ok("Tool not yet available in standalone mode".to_string())
+        }
         _ => anyhow::bail!("Unknown tool: {name}"),
     }
 }
@@ -92,6 +96,9 @@ pub fn builtin_tool_definitions(web_enabled: bool, github_enabled: bool) -> Vec<
     tools.push(git::git_push_definition());
     tools.push(git::git_log_definition());
     tools.push(git::git_branch_definition());
+    // Voice + self-improvement tools (definitions only; execution needs engine instances)
+    tools.push(voice::definition());
+    tools.push(improve::definition());
     // Memory tools always available
     tools.push(memory::memory_search_definition());
     tools.push(memory::memory_read_definition());
