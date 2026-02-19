@@ -110,6 +110,36 @@ impl Default for AgentPoolConfig {
 pub struct TelegramConfig {
     pub bot_token: Option<String>,
     pub allowed_users: Vec<i64>,
+    /// Scoped bots — each bound to specific tasks
+    #[serde(default)]
+    pub bots: Vec<ScopedBotConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScopedBotConfig {
+    pub name: String,
+    pub bot_token: String,
+    pub allowed_users: Vec<i64>,
+    /// Task slugs this bot can access. ["*"] = all tasks.
+    pub tasks: Vec<String>,
+    /// Optional system prompt override
+    pub system_prompt: Option<String>,
+    /// Optional system prompt file path
+    pub system_prompt_file: Option<String>,
+    /// Model tier: "quick", "standard", "complex" (default: "standard")
+    #[serde(default = "default_model_tier")]
+    pub default_model: String,
+    /// "scoped" (default) or "full"
+    #[serde(default = "default_memory_access")]
+    pub memory_access: String,
+}
+
+fn default_model_tier() -> String {
+    "standard".into()
+}
+
+fn default_memory_access() -> String {
+    "scoped".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
