@@ -176,7 +176,7 @@ async fn handle_message(
     // Route based on bot type
     if instance.bot_type == "dev" {
         // Dev bot — delegate to Claude Code CLI
-        handle_dev_message(instance, chat_id, &text, cost_tracker, dash).await;
+        handle_dev_message(instance, chat_id, &text, api_key, cost_tracker, dash).await;
     } else {
         // Standard bot — use internal agent loop
         handle_standard_message(instance, chat_id, &text, api_key, tool_defs, brave_api_key, github_token, cost_tracker, dash).await;
@@ -188,6 +188,7 @@ async fn handle_dev_message(
     instance: &mut BotInstance,
     chat_id: i64,
     text: &str,
+    api_key: &str,
     cost_tracker: &Arc<RwLock<CostTracker>>,
     dash: Option<&DashboardState>,
 ) {
@@ -235,6 +236,7 @@ async fn handle_dev_message(
         &instance.model,
         instance.max_budget_usd,
         instance.dev_timeout_seconds,
+        Some(api_key),
     ).await {
         Ok(result) => {
             let reply = if result.output.is_empty() {

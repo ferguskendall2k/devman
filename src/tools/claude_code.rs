@@ -51,6 +51,11 @@ pub fn definition() -> ToolDefinition {
 
 /// Execute a claude_code tool call
 pub async fn execute(input: &serde_json::Value) -> Result<String> {
+    execute_with_api_key(input, None).await
+}
+
+/// Execute with an explicit API key
+pub async fn execute_with_api_key(input: &serde_json::Value, api_key: Option<&str>) -> Result<String> {
     let task = input["task"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("missing 'task' parameter"))?;
@@ -81,6 +86,11 @@ pub async fn execute(input: &serde_json::Value) -> Result<String> {
         .arg("--dangerously-skip-permissions") // running in trusted context
         .arg("--no-session-persistence")       // don't clutter session list
         .current_dir(working_dir);
+
+    // Pass API key if provided (Claude Code needs auth)
+    if let Some(key) = api_key {
+        cmd.env("ANTHROPIC_API_KEY", key);
+    }
 
     if let Some(tools) = allowed_tools {
         cmd.arg("--allowed-tools").arg(tools);
@@ -194,6 +204,7 @@ pub async fn run_dev_task(
     model: &str,
     max_budget_usd: f64,
     timeout_seconds: u64,
+    api_key: Option<&str>,
 ) -> Result<DevTaskResult> {
     let input = json!({
         "task": task,
@@ -203,7 +214,7 @@ pub async fn run_dev_task(
         "timeout_seconds": timeout_seconds,
     });
 
-    let output = execute(&input).await?;
+    let output = execute_with_api_key(&input, api_key).await?;
 
     Ok(DevTaskResult {
         output,
