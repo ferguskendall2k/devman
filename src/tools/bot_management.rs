@@ -97,6 +97,10 @@ pub async fn assign_bot_execute(input: &Value) -> Result<String> {
         memory_access,
         max_tokens: 4096,
         max_turns: 20,
+        bot_type: "standard".to_string(),
+        working_directory: None,
+        max_budget_usd: 1.0,
+        dev_timeout_seconds: 600,
     };
 
     tg.bots.push(new_bot);

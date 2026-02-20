@@ -138,6 +138,17 @@ pub struct ScopedBotConfig {
     /// Max conversation turns before auto-compaction (default: 20)
     #[serde(default = "default_bot_max_turns")]
     pub max_turns: u32,
+    /// Bot type: "standard" (default) or "dev" (uses Claude Code for coding tasks)
+    #[serde(default = "default_bot_type")]
+    pub bot_type: String,
+    /// Working directory for dev bots (project root). Required when bot_type = "dev".
+    pub working_directory: Option<String>,
+    /// Max budget per Claude Code invocation in USD. Default: 1.00
+    #[serde(default = "default_dev_budget")]
+    pub max_budget_usd: f64,
+    /// Timeout per Claude Code invocation in seconds. Default: 600
+    #[serde(default = "default_dev_timeout")]
+    pub dev_timeout_seconds: u64,
 }
 
 fn default_bot_max_tokens() -> u32 {
@@ -146,6 +157,18 @@ fn default_bot_max_tokens() -> u32 {
 
 fn default_bot_max_turns() -> u32 {
     20
+}
+
+fn default_bot_type() -> String {
+    "standard".into()
+}
+
+fn default_dev_budget() -> f64 {
+    1.0
+}
+
+fn default_dev_timeout() -> u64 {
+    600
 }
 
 fn default_model_tier() -> String {

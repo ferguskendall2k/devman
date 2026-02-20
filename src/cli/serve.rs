@@ -43,6 +43,14 @@ struct BotInstance {
     memory_access: String,
     max_tokens: u32,
     max_turns: u32,
+    /// "standard" or "dev" (Claude Code)
+    bot_type: String,
+    /// Working directory for dev bots
+    working_directory: Option<String>,
+    /// Max budget per Claude Code call (USD)
+    max_budget_usd: f64,
+    /// Timeout per Claude Code call (seconds)
+    dev_timeout_seconds: u64,
 }
 
 impl BotInstance {
@@ -165,6 +173,148 @@ async fn handle_message(
 
     let _ = instance.bot.send_typing(chat_id).await;
 
+    // Route based on bot type
+    if instance.bot_type == "dev" {
+        // Dev bot — delegate to Claude Code CLI
+        handle_dev_message(instance, chat_id, &text, cost_tracker, dash).await;
+    } else {
+        // Standard bot — use internal agent loop
+        handle_standard_message(instance, chat_id, &text, api_key, tool_defs, brave_api_key, github_token, cost_tracker, dash).await;
+    }
+}
+
+/// Handle message via Claude Code (dev bot)
+async fn handle_dev_message(
+    instance: &mut BotInstance,
+    chat_id: i64,
+    text: &str,
+    cost_tracker: &Arc<RwLock<CostTracker>>,
+    dash: Option<&DashboardState>,
+) {
+    let working_dir = match &instance.working_directory {
+        Some(dir) => dir.clone(),
+        None => {
+            let _ = instance.bot.send_message(chat_id,
+                "❌ Dev bot has no working_directory configured. Set it in config.toml.").await;
+            return;
+        }
+    };
+
+    // Build context-aware prompt with system prompt + conversation history
+    let chats_dir = instance.chats_dir.clone();
+    let chat = instance.chat_states.entry(chat_id).or_insert_with(|| {
+        ChatState {
+            context: ContextManager::with_persistence(
+                chats_dir.join(format!("{chat_id}.json")),
+            ),
+        }
+    });
+
+    // Save user message to history
+    chat.context.add_user_message(text);
+
+    // Build the full prompt: system context + user request
+    let full_prompt = if instance.system_prompt.is_empty() {
+        text.to_string()
+    } else {
+        format!("{}\n\n---\nUser request: {}", instance.system_prompt, text)
+    };
+
+    if let Some(d) = dash {
+        broadcast_log(d, format!("[{}] 🔧 Delegating to Claude Code in {}", instance.name, working_dir));
+    }
+    eprintln!("{} [{}] Delegating to Claude Code → {}", "🔧".dimmed(), instance.name.yellow(), working_dir.dimmed());
+
+    // Send "working on it" indicator
+    let _ = instance.bot.send_message(chat_id,
+        &format!("🔧 Working on it via Claude Code...\n📁 `{}`", working_dir)).await;
+
+    match tools::claude_code::run_dev_task(
+        &full_prompt,
+        &working_dir,
+        &instance.model,
+        instance.max_budget_usd,
+        instance.dev_timeout_seconds,
+    ).await {
+        Ok(result) => {
+            let reply = if result.output.is_empty() {
+                "[Claude Code returned no output]".to_string()
+            } else {
+                result.output
+            };
+
+            // Split long replies into chunks (Telegram 4096 char limit)
+            let chunks = split_telegram_message(&reply, 4000);
+            for chunk in &chunks {
+                if let Err(e) = instance.bot.send_message(chat_id, chunk).await {
+                    tracing::error!("[{}] Failed to send reply chunk: {e}", instance.name);
+                    break;
+                }
+            }
+
+            // Save assistant response to history
+            chat.context.add_assistant_message(vec![crate::types::ContentBlock::Text { text: reply.clone() }]);
+            let _ = chat.context.save();
+
+            if let Some(d) = dash {
+                broadcast_log(d, format!("[{}] ✅ Claude Code task complete ({} chunks)", instance.name, chunks.len()));
+            }
+        }
+        Err(e) => {
+            tracing::error!("[{}] Claude Code error: {e}", instance.name);
+            if let Some(d) = dash {
+                broadcast_log(d, format!("[{}] ❌ Claude Code error: {e}", instance.name));
+            }
+            let _ = instance.bot.send_message(chat_id, &format!("❌ Claude Code error: {e}")).await;
+
+            // Save error to history
+            chat.context.add_assistant_message(vec![crate::types::ContentBlock::Text {
+                text: format!("[Error: {e}]"),
+            }]);
+            let _ = chat.context.save();
+        }
+    }
+}
+
+/// Split a message into Telegram-safe chunks
+fn split_telegram_message(text: &str, max_len: usize) -> Vec<String> {
+    if text.len() <= max_len {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        if remaining.len() <= max_len {
+            chunks.push(remaining.to_string());
+            break;
+        }
+
+        // Try to split at a newline
+        let split_at = remaining[..max_len]
+            .rfind('\n')
+            .unwrap_or(max_len);
+
+        chunks.push(remaining[..split_at].to_string());
+        remaining = &remaining[split_at..].trim_start_matches('\n');
+    }
+
+    chunks
+}
+
+/// Handle message via internal agent loop (standard bot)
+async fn handle_standard_message(
+    instance: &mut BotInstance,
+    chat_id: i64,
+    text: &str,
+    api_key: &str,
+    tool_defs: &[crate::types::ToolDefinition],
+    brave_api_key: &Option<String>,
+    github_token: &Option<String>,
+    cost_tracker: &Arc<RwLock<CostTracker>>,
+    dash: Option<&DashboardState>,
+) {
     let storage = instance.task_storage();
     let chats_dir = instance.chats_dir.clone();
 
@@ -205,7 +355,7 @@ async fn handle_message(
         agent = agent.with_storage(s);
     }
 
-    match agent.run_turn(&text).await {
+    match agent.run_turn(text).await {
         Ok(result) => {
             let reply = if result.text.is_empty() {
                 "[No response]".to_string()
@@ -314,6 +464,10 @@ pub async fn run(config: &Config) -> Result<()> {
         memory_access: "full".to_string(),
         max_tokens: 4096,
         max_turns: config.agents.max_turns,
+        bot_type: "standard".to_string(),
+        working_directory: None,
+        max_budget_usd: 1.0,
+        dev_timeout_seconds: 600,
     };
 
     // --- Scoped bots ---
@@ -345,6 +499,8 @@ pub async fn run(config: &Config) -> Result<()> {
             "standard" | _ => config.models.standard.clone(),
         };
 
+        let bot_type_label = if sc.bot_type == "dev" { "dev 🔧" } else { "standard" };
+
         scoped_bots.push(BotInstance {
             name: sc.name.clone(),
             bot: TelegramBot::new(sc.bot_token.clone(), sc.allowed_users.clone()),
@@ -357,9 +513,13 @@ pub async fn run(config: &Config) -> Result<()> {
             memory_access: sc.memory_access.clone(),
             max_tokens: sc.max_tokens,
             max_turns: sc.max_turns,
+            bot_type: sc.bot_type.clone(),
+            working_directory: sc.working_directory.clone(),
+            max_budget_usd: sc.max_budget_usd,
+            dev_timeout_seconds: sc.dev_timeout_seconds,
         });
 
-        eprintln!("{} Scoped bot '{}' → tasks: {:?}", "🤖".dimmed(), sc.name.cyan(), sc.tasks);
+        eprintln!("{} Scoped bot '{}' [{}] → tasks: {:?}", "🤖".dimmed(), sc.name.cyan(), bot_type_label, sc.tasks);
     }
 
     // Disk space check
