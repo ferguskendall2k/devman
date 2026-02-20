@@ -175,11 +175,29 @@ async fn handle_message(
 
     // Route based on bot type
     if instance.bot_type == "dev" {
-        // Dev bot — delegate to Claude Code CLI
-        handle_dev_message(instance, chat_id, &text, api_key, cost_tracker, dash).await;
+        // Dev bot — use internal agent loop with dev-enhanced system prompt and working directory
+        // Falls back to Claude Code CLI if `claude auth` is configured
+        if claude_code_available().await {
+            handle_dev_message(instance, chat_id, &text, api_key, cost_tracker, dash).await;
+        } else {
+            // Use standard agent loop but with dev-oriented setup
+            handle_standard_message(instance, chat_id, &text, api_key, tool_defs, brave_api_key, github_token, cost_tracker, dash).await;
+        }
     } else {
         // Standard bot — use internal agent loop
         handle_standard_message(instance, chat_id, &text, api_key, tool_defs, brave_api_key, github_token, cost_tracker, dash).await;
+    }
+}
+
+/// Check if Claude Code CLI is authenticated and available
+async fn claude_code_available() -> bool {
+    match tokio::process::Command::new("claude")
+        .args(["auth", "status"])
+        .output()
+        .await
+    {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
     }
 }
 
@@ -340,11 +358,26 @@ async fn handle_standard_message(
         context.compact(keep);
     }
 
+    // For dev bots, enhance the system prompt with working directory context
+    let effective_prompt = if instance.bot_type == "dev" {
+        let wd = instance.working_directory.as_deref().unwrap_or(".");
+        format!(
+            "{}\n\n## Dev Bot Context\nYou are a software development bot. Your project directory is: {}\n\
+            Always use shell, read_file, write_file, edit_file tools to actually write and modify code.\n\
+            When asked to build something, DO IT — write real code, create files, run commands.\n\
+            Start by examining the project directory if you haven't already.\n\
+            Be hands-on and proactive. Show what you did, not what you could do.",
+            instance.system_prompt, wd
+        )
+    } else {
+        instance.system_prompt.clone()
+    };
+
     let mut agent = AgentLoop::new(
         AnthropicClient::new(api_key.to_string()),
         context,
         instance.model.clone(),
-        instance.system_prompt.clone(),
+        effective_prompt,
         tool_defs.to_vec(),
         instance.max_turns,
         instance.max_tokens,
